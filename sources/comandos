@@ -8,7 +8,6 @@ comand () {
 				 /[Ii]d|/[Ii]D)myid_src &;;
 				 /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|[Cc]omensar|/[Cc]omensar)menu_src &;;
 				 /[Aa]yuda|[Aa]yuda|[Hh]elp|/[Hh]elp)ayuda_src &;;
-				 /*|*)invalido_fun &;;
 			 esac
 		 else
 		 	if [[ ${message_text[$id]} || ${callback_query_data[$id]} ]]; then
@@ -18,7 +17,6 @@ comand () {
 				 /[Ii]d|/[Ii]D)myid_src &;;
 				 /[Ii]nstal)link_src &;;
 				 /[Kk]eygen)gerar_key &;;
-				 /*|*)invalido_fun &;;
 			 esac
 			fi
 			sleep 5 
@@ -30,7 +28,6 @@ comand () {
 				case ${message_reply_to_message_text[$id]} in
 					'/del')deleteID_reply;;
 					'/add')addID_reply;;
-					*)invalido_fun;;
 				esac
 
 			elif [[ ${message_document_file_id[$id]} ]]; then
@@ -52,7 +49,6 @@ comand () {
 			 		 /[Cc]ache)cache_src &;;
 					 /[Uu]pdate|/[Aa]ctualizar)update &;;
 					 /[Dd]onar|[Dd]onar)donar_OnOff &;;
-			 		 /*|*)invalido_fun &;;
 				esac
 
 			fi

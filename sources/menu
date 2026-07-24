@@ -4,8 +4,9 @@ menu_src () {
 bot_retorno="🔹 <b>PANEL DE COMANDOS</b> 🔹\n"
 
 unset usadas
-usadas="$(cat /etc/http-instas)"
-[[ ! $usadas ]] && k_used="0" || k_used="$usadas"
+usadas="$(grep -c "^${chatuser}$" /etc/http-instas 2>/dev/null)"
+[[ -z "$usadas" ]] && usadas="0"
+k_used="$usadas"
 
 	 if [[ $(echo $permited|grep "${chatuser}") = "" ]]; then
 		 if [[ $(cat ${CID}|grep "${chatuser}") = "" ]]; then

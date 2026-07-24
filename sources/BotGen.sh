@@ -121,17 +121,6 @@ upfile_fun () {
                              --document @${1}
 }
 
-invalido_fun () {
-	[[ ! -z ${callback_query_message_chat_id[$id]} ]] && var=${callback_query_message_chat_id[$id]} || var=${message_chat_id[$id]}
-local bot_retorno="$LINE\n"
-         bot_retorno+="Comando invalido!\n"
-         bot_retorno+="$LINE\n"
-	     ShellBot.sendMessage --chat_id $var \
-							--text "<i>$(echo -e $bot_retorno)</i>" \
-							--parse_mode html
-	return 0	
-}
-
 msj_fun () {
 	[[ ! -z ${callback_query_message_chat_id[$id]} ]] && var=${callback_query_message_chat_id[$id]} || var=${message_chat_id[$id]}
 	      ShellBot.sendMessage --chat_id "$var" \

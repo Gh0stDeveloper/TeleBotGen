@@ -72,22 +72,18 @@ gerar_key() {
     fun_list "$valuekey"
 
     keyfinal="${LIST}/$(ofus "${IP}:8888/${valuekey}")"
-
     local bot_retorno="$LINE\n"
-
     bot_retorno+="Hex Auto Script By JotchuaDevzZ\n"
     bot_retorno+="✅ Key Generada Con Exito! ✅\n"
     bot_retorno+="$LINE\n"
-    bot_retorno+="<code>${keyfinal}</code>\n"
+    bot_retorno+="Key : <code>${keyfinal}</code>\n"
     bot_retorno+="$LINE\n"
-    bot_retorno+="⚠️ Sistemas recomendados: Ubuntu 20.04 y 22.04\n"
+    bot_retorno+="<code>sudo apt update -y; apt upgrade -y; wget -qO install.sh https://raw.githubusercontent.com/JotchuaDevz/Porno-OS/refs/heads/main/install.sh; chmod +x install.sh; ./install.sh</code>\n"
     bot_retorno+="$LINE\n"
-
-    bot_retorno+="<pre>sudo apt update -y; apt upgrade -y; wget -qO install.sh https://raw.githubusercontent.com/JotchuaDevz/Porno-OS/refs/heads/main/install.sh; chmod +x install.sh; ./install.sh</pre>\n"
-
+    bot_retorno+="⚠️ Sistemas recomendados: Ubuntu 20.04, 22.04, 24.04\n"
+    bot_retorno+="$LINE\n"
     bot_retorno+="Esta key se autodestruira en 4hs\n"
     bot_retorno+="pasado este tiempo deve generar una nueva key.\n"
-
     bot_retorno+="$LINE\n"
 
     msj_fun

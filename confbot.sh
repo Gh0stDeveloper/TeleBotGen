@@ -139,7 +139,10 @@ instalar_servicios() {
     mkdir -p "$CIDdir"
 
     apt-get update -qq
-    if ! apt-get install -y jq netcat-traditional bc python3 at; then
+    # FIX: http-server.sh ya no usa netcat-traditional (nc solo atiende una
+    # conexion a la vez y se cuelga con clientes que no mandan datos). Ahora
+    # usa socat con 'fork', que si soporta multiples conexiones en paralelo.
+    if ! apt-get install -y jq socat bc python3 at; then
         echo -e "\033[1;31m⚠️  Algun paquete no se pudo instalar, revisa arriba cual fallo.\033[0m"
         read -r foo
     fi
