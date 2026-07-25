@@ -1,4 +1,4 @@
- #!/bin/bash
+#!/bin/bash
 
 IVAR="/etc/http-instas"
 onliCHECK="/var/www/html/HexGen"
@@ -71,10 +71,7 @@ server_fun() {
 
     mkdir -p "$DIR"
 
-    # FIX: timeout de 5s en el read. Si el cliente abre la conexión y no
-    # manda nada, este proceso (ahora aislado por socat fork) simplemente
-    # termina en vez de quedarse colgado para siempre.
-    read -t 5 URL || exit 0
+    read URL
 
     KEYZ=($(echo "$URL" | cut -d' ' -f2 | awk -F "/" '{print $2, $3, $4}'))
 
@@ -141,6 +138,7 @@ EOF
             done < "$FILE"
 
             _key="HexGen/$(ofus "${IP}:${PORTA}/${KEY}")"
+
             echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
                 > "/var/www/html/$KEY/checkIP.log"
 
@@ -164,18 +162,16 @@ EOF
 
             chmod +x "${onliCHECK}/checkIP.log"
 
-            ID="$(echo "$KEY_NAME" | awk '{print $1}' | sed 's/[^0-9]//g')"
-
             if [[ -e /etc/ADM-db/token ]]; then
 
                 TOKEN="$(cat /etc/ADM-db/token)"
 
-                NOTIFY_ID="$ID"
+                ID="$(echo "$KEY_NAME" | awk '{print $1}' | sed 's/[^0-9]//g')"
 
-                [[ -z "$NOTIFY_ID" ]] && \
-                    NOTIFY_ID="$(cat /etc/ADM-db/Admin-ID 2>/dev/null)"
+                [[ -z "$ID" ]] && \
+                    ID="$(cat /etc/ADM-db/Admin-ID 2>/dev/null)"
 
-                if [[ -n "$TOKEN" && -n "$NOTIFY_ID" ]]; then
+                if [[ -n "$TOKEN" && -n "$ID" ]]; then
 
                     URLBOT="https://api.telegram.org/bot${TOKEN}/sendMessage"
 
