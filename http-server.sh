@@ -7,7 +7,7 @@ LIST="$(echo "HexGen" | rev)"
 [[ -d "$onliCHECK" ]] || mkdir -p "$onliCHECK"
 
 install_fun() {
-    apt-get install -y netcat-traditional
+    apt-get install -y socat
 }
 
 fun_ip() {
@@ -57,10 +57,7 @@ ofus() {
 listen_fun() {
     PORTA="8888"
     PROGRAMA="/bin/http-server.sh"
-
-    while true; do
-        nc.traditional -l -p "$PORTA" -e "$PROGRAMA"
-    done
+    socat TCP-LISTEN:${PORTA},fork,reuseaddr,linger=0 EXEC:"${PROGRAMA}"
 }
 
 server_fun() {
@@ -70,8 +67,7 @@ server_fun() {
     DIR="/etc/http-shell"
 
     mkdir -p "$DIR"
-
-    read URL
+    read -t 5 URL || exit 0
 
     KEYZ=($(echo "$URL" | cut -d' ' -f2 | awk -F "/" '{print $2, $3, $4}'))
 
@@ -138,8 +134,7 @@ EOF
             done < "$FILE"
 
             _key="HexGen/$(ofus "${IP}:${PORTA}/${KEY}")"
-
-            echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
+[24/07/2026 08:47 p. m.] Jotchua DevzZ ['']: echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
                 > "/var/www/html/$KEY/checkIP.log"
 
             echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
@@ -161,17 +156,18 @@ EOF
                 >> "${onliCHECK}/checkIP.log"
 
             chmod +x "${onliCHECK}/checkIP.log"
+            ID="$(echo "$KEY_NAME" | awk '{print $1}' | sed 's/[^0-9]//g')"
 
             if [[ -e /etc/ADM-db/token ]]; then
 
                 TOKEN="$(cat /etc/ADM-db/token)"
 
-                ID="$(echo "$KEY_NAME" | awk '{print $1}' | sed 's/[^0-9]//g')"
+                NOTIFY_ID="$ID"
 
-                [[ -z "$ID" ]] && \
-                    ID="$(cat /etc/ADM-db/Admin-ID 2>/dev/null)"
+                [[ -z "$NOTIFY_ID" ]] && \
+                    NOTIFY_ID="$(cat /etc/ADM-db/Admin-ID 2>/dev/null)"
 
-                if [[ -n "$TOKEN" && -n "$ID" ]]; then
+                if [[ -n "$TOKEN" && -n "$NOTIFY_ID" ]]; then
 
                     URLBOT="https://api.telegram.org/bot${TOKEN}/sendMessage"
 
