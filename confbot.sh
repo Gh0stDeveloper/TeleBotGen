@@ -139,26 +139,22 @@ instalar_servicios() {
     mkdir -p "$CIDdir"
 
     apt-get update -qq
-    # FIX: http-server.sh ya no usa netcat-traditional (nc solo atiende una
-    # conexion a la vez y se cuelga con clientes que no mandan datos). Ahora
-    # usa socat con 'fork', que si soporta multiples conexiones en paralelo.
-    if ! apt-get install -y jq socat bc python3 at; then
+    if ! apt-get install -y jq netcat-traditional bc python3; then
         echo -e "\033[1;31m⚠️  Algun paquete no se pudo instalar, revisa arriba cual fallo.\033[0m"
         read -r foo
     fi
-    systemctl enable atd >/dev/null 2>&1
-    systemctl start atd >/dev/null 2>&1
 
     NEEDS_RELOAD=0
+
+    # BUG FIX: http-server.sh vive en la raiz del repo, no en /sources/,
+    # asi que no lo trae download()/lista-bot. Se baja directo aqui.
     if [[ ! -f "/usr/local/bin/hexgen-http-server" ]]; then
         wget -q -O "/usr/local/bin/hexgen-http-server" \
             "https://raw.githubusercontent.com/JotchuaDevz/TeleBotGen/master/http-server.sh"
 
-      if [[ -s "/usr/local/bin/hexgen-http-server" ]]; then
-    chmod +x "/usr/local/bin/hexgen-http-server"
-    sed -i 's|PROGRAMA="/bin/http-server.sh"|PROGRAMA="/usr/local/bin/hexgen-http-server"|' \
-        "/usr/local/bin/hexgen-http-server"
-else
+        if [[ -s "/usr/local/bin/hexgen-http-server" ]]; then
+            chmod +x "/usr/local/bin/hexgen-http-server"
+        else
             rm -f "/usr/local/bin/hexgen-http-server"
         fi
     fi
@@ -231,6 +227,9 @@ EOF
 
 start_bot() {
     [[ ! -e "$CIDdir/token" ]] && echo "null" > "$CIDdir/token"
+
+    # BUG FIX: si el unit file no existe todavia, avisar en vez de
+    # tirar "Unit telebotgen.service not found" sin contexto
     if [[ ! -f /etc/systemd/system/telebotgen.service ]]; then
         clear
         echo -e "$bar"

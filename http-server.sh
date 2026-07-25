@@ -7,7 +7,7 @@ LIST="$(echo "HexGen" | rev)"
 [[ -d "$onliCHECK" ]] || mkdir -p "$onliCHECK"
 
 install_fun() {
-    apt-get install -y socat
+    apt-get install -y netcat-traditional
 }
 
 fun_ip() {
@@ -58,13 +58,9 @@ listen_fun() {
     PORTA="8888"
     PROGRAMA="/bin/http-server.sh"
 
-    # FIX: nc.traditional solo atiende UNA conexión a la vez. Si una conexión
-    # se queda abierta sin mandar datos (escaneo de puertos, cliente con mala
-    # señal, etc.), el 'read' de más abajo se cuelga para siempre y el 'while'
-    # nunca vuelve a llamar a nc -> el puerto 8888 deja de responder hasta que
-    # reinicias el servicio. socat con 'fork' atiende cada conexión en su
-    # propio proceso, así una conexión colgada ya no bloquea a los demás.
-    socat TCP-LISTEN:${PORTA},fork,reuseaddr,linger=0 EXEC:"${PROGRAMA}"
+    while true; do
+        nc.traditional -l -p "$PORTA" -e "$PROGRAMA"
+    done
 }
 
 server_fun() {
