@@ -178,8 +178,9 @@ EOF
                     MENSAJE+="🌐 IP: <code>${USRIP}</code>%0A"
                     MENSAJE+="⏰ FECHA: ${USED_TIME}%0A"
                     MENSAJE+="===============================%0A"
-                    MENSAJE+="⚡ HexGen by JotchuaDevz"
+                    MENSAJE+="⚡ HexGen by JotchuaDevz%0A"
                     MENSAJE+="==============================="
+                    msj_fun
 
                     curl -s --max-time 10 \
                         -X POST "$URLBOT" \
