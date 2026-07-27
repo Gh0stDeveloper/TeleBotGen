@@ -1,23 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-update () {
-    # BUG FIX: antes solo bajaba update.sh si NO existia ya, quedando
-    # con una copia vieja/rota para siempre si un intento anterior fallo.
-    wget -q -O "$HOME/update.sh" \
-        "https://raw.githubusercontent.com/JotchuaDevz/TeleBotGen/master/update.sh"
-
-    if [[ ! -s "$HOME/update.sh" ]]; then
-        local bot_retorno="$LINE\n"
-        bot_retorno+="❌ No se pudo descargar update.sh\n"
-        bot_retorno+="$LINE\n"
+update() {
+    local bot_retorno
+    if [[ ! -x /usr/local/bin/telebotgen-update ]]; then
+        bot_retorno="$LINE\nEl actualizador no está instalado. Ejecuta confbot.sh desde el VPS.\n$LINE"
         msj_fun
         return 1
     fi
 
-    chmod +x "$HOME/update.sh"
-
-    # BUG FIX: antes usaba screen + killall BotGen.sh, que no mataba
-    # el proceso real (corre como 'bash' bajo systemd) y terminaba
-    # duplicando el bot. update.sh ahora reinicia el servicio el mismo.
-    nohup "$HOME/update.sh" >/dev/null 2>&1 &
+    bot_retorno="$LINE\nActualización iniciada. El bot se reiniciará automáticamente.\n$LINE"
+    msj_fun
+    systemd-run --quiet --collect \
+        --unit="telebotgen-update-$(date +%s)" \
+        /usr/local/bin/telebotgen-update >/dev/null 2>&1 || {
+        bot_retorno="$LINE\nNo se pudo iniciar la actualización. Revisa systemd y journalctl.\n$LINE"
+        msj_fun
+        return 1
+    }
 }
