@@ -1,213 +1,163 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
 
-IVAR="/etc/http-instas"
-onliCHECK="/var/www/html/HexGen"
-LIST="$(echo "HexGen" | rev)"
+KEY_ROOT="${HEXGEN_KEY_ROOT:-/etc/http-shell}"
+STATE_ROOT="${HEXGEN_STATE_ROOT:-/etc/ADM-db}"
+PORT="${HEXGEN_PORT:-8888}"
+BIND_ADDRESS="${HEXGEN_BIND_ADDRESS:-0.0.0.0}"
+PROGRAM="${HEXGEN_SERVER_PROGRAM:-/usr/local/bin/hexgen-http-server}"
+LOG_FILE="${HEXGEN_LOG_FILE:-/var/log/telebotgen-license.log}"
 
-[[ -d "$onliCHECK" ]] || mkdir -p "$onliCHECK"
+mkdir -p "$KEY_ROOT" "$STATE_ROOT"
+chmod 700 "$KEY_ROOT" "$STATE_ROOT"
 
-install_fun() {
-    apt-get install -y socat
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
 }
 
-fun_ip() {
-    _hora=$(date '+%d/%m/%Y-%H:%M:%S')
-
-    if [[ -e /bin/ejecutar/IPcgh ]]; then
-        IP="$(cat /bin/ejecutar/IPcgh)"
-    else
-        MEU_IP=$(ip addr | grep 'inet' | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -1)
-        MEU_IP2=$(wget -qO- ipv4.icanhazip.com)
-
-        [[ -n "$MEU_IP2" ]] && IP="$MEU_IP2" || IP="$MEU_IP"
-
-        mkdir -p /bin/ejecutar
-        echo "$IP" > /bin/ejecutar/IPcgh
-    fi
+http_response() {
+    local status="$1" body="$2" length
+    length="$(printf '%s' "$body" | wc -c)"
+    printf 'HTTP/1.1 %s\r\n' "$status"
+    printf 'Date: %s\r\n' "$(LC_ALL=C date -R)"
+    printf 'Server: TeleBotGen\r\n'
+    printf 'Content-Type: text/plain; charset=utf-8\r\n'
+    printf 'Cache-Control: no-store\r\n'
+    printf 'Connection: close\r\n'
+    printf 'Content-Length: %s\r\n\r\n' "$length"
+    printf '%s' "$body"
 }
 
-ofus() {
-    unset txtofus
-    local str="$1"
-    local number=$(expr length "$str")
-    local c
+metadata_value() {
+    local file="$1" name="$2" line
+    line="$(grep -m1 "^${name}=" "$file" 2>/dev/null || true)"
+    printf '%s' "${line#*=}"
+}
 
-    for ((i=1; i<=number; i++)); do
-        c=$(echo "$str" | cut -b "$i")
+key_is_expired() {
+    local metadata="$1" expires epoch
+    expires="$(metadata_value "$metadata" HEXGEN_EXPIRES_AT)"
+    [[ -n "$expires" ]] || return 0
+    epoch="$(date -d "$expires" +%s 2>/dev/null || printf 0)"
+    ((epoch <= $(date -u +%s)))
+}
 
-        case "$c" in
-            ".") c="*";;
-            "*") c=".";;
-            "1") c="@";;
-            "@") c="1";;
-            "2") c="?";;
-            "?") c="2";;
-            "4") c="%";;
-            "%") c="4";;
-            "-") c="K";;
-            "K") c="-";;
-        esac
+notify_activation() {
+    local owner_id="$1" key_display="$2" client_ip="$3" peer_ip="$4" used_at="$5"
+    local token admin_id notify_id url message
+    token="$(tr -d '\r\n' < "$STATE_ROOT/token" 2>/dev/null || true)"
+    admin_id="$(tr -d '\r\n' < "$STATE_ROOT/Admin-ID" 2>/dev/null || true)"
+    notify_id="$owner_id"
+    [[ "$notify_id" =~ ^[0-9]+$ ]] || notify_id="$admin_id"
+    [[ -n "$token" && "$token" != null && "$notify_id" =~ ^[0-9]+$ ]] || return 0
 
-        txtofus+="$c"
+    url="https://api.telegram.org/bot${token}/sendMessage"
+    message="HEX TUNNEL — KEY ACTIVADA
+
+Key: ${key_display}
+IP declarada: ${client_ip}
+IP de conexión: ${peer_ip:-desconocida}
+Fecha UTC: ${used_at}"
+    curl -fsS --max-time 10 -X POST "$url" \
+        --data-urlencode "chat_id=$notify_id" \
+        --data-urlencode "text=$message" >/dev/null 2>&1 || true
+}
+
+handle_request() {
+    local method target protocol header path token resource client_ip extra
+    local key_dir consume_dir metadata fixed_ip owner_id peer_ip used_at key_display
+
+    IFS=' ' read -r method target protocol || {
+        http_response '400 Bad Request' 'BAD REQUEST'
+        return 0
+    }
+    while IFS= read -r header; do
+        header="${header%$'\r'}"
+        [[ -z "$header" ]] && break
     done
 
-    echo "$txtofus" | rev
-}
+    [[ "$method" == GET ]] || {
+        http_response '405 Method Not Allowed' 'METHOD NOT ALLOWED'
+        return 0
+    }
+    path="${target%%\?*}"
+    path="${path#/}"
+    IFS='/' read -r token resource client_ip extra <<< "$path"
+    [[ -z "$extra" && "$token" =~ ^[0-9a-f]{40}$ && "$resource" == HexGen ]] || {
+        http_response '200 OK' 'KEY INVALIDA!'
+        return 0
+    }
+    [[ "$client_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || {
+        http_response '200 OK' 'KEY INVALIDA!'
+        return 0
+    }
 
-listen_fun() {
-    PORTA="8888"
-    PROGRAMA="/bin/http-server.sh"
-    socat TCP-LISTEN:${PORTA},fork,reuseaddr,linger=0 EXEC:"${PROGRAMA}"
-}
-
-server_fun() {
-    fun_ip
-
-    PORTA="8888"
-    DIR="/etc/http-shell"
-
-    mkdir -p "$DIR"
-    read -t 5 URL || exit 0
-
-    KEYZ=($(echo "$URL" | cut -d' ' -f2 | awk -F "/" '{print $2, $3, $4}'))
-
-    KEY="${KEYZ[0]}"
-    ARQ="${KEYZ[1]}"
-    USRIP="${KEYZ[2]}"
-
-    [[ -z "$KEY" ]] && KEY="ERRO"
-    [[ -z "$ARQ" ]] && ARQ="ERRO"
-    [[ -z "$USRIP" ]] && USRIP="ERRO"
-
-    FILE2="${DIR}/${KEY}"
-    FILE="${DIR}/${KEY}/${ARQ}"
-
-    ENV_ARQ="False"
-
-    if [[ -e "$FILE" ]]; then
-        ENV_ARQ="True"
-
-        if [[ -e "${FILE2}/GERADOR" && "$USRIP" != "ERRO" ]]; then
-            FILE="${DIR}/ERROR-KEY"
-            echo "KEY DE GENERADOR!" > "$FILE"
-            ENV_ARQ="False"
-
-        elif [[ ! -e "${FILE2}/GERADOR" && "$USRIP" == "ERRO" ]]; then
-            FILE="${DIR}/ERROR-KEY"
-            echo "KEY DE HEXGEN!" > "$FILE"
-            ENV_ARQ="False"
-        fi
-
-    else
-        FILE="${DIR}/ERROR-KEY"
-        echo "KEY INVALIDA!" > "$FILE"
+    key_dir="$KEY_ROOT/$token"
+    metadata="$key_dir/metadata.env"
+    [[ -f "$key_dir/HexGen" && -f "$metadata" ]] || {
+        http_response '200 OK' 'KEY INVALIDA!'
+        return 0
+    }
+    [[ "$(metadata_value "$metadata" HEXGEN_PRODUCT)" == hextunnel ]] || {
+        http_response '200 OK' 'KEY DE GENERADOR!'
+        return 0
+    }
+    if key_is_expired "$metadata"; then
+        rm -rf -- "$key_dir" "$KEY_ROOT/$token.name"
+        http_response '200 OK' 'KEY INVALIDA!'
+        return 0
+    fi
+    if [[ -s "$key_dir/keyfixa" ]]; then
+        fixed_ip="$(tr -d '\r\n' < "$key_dir/keyfixa")"
+        [[ "$fixed_ip" == "$client_ip" ]] || {
+            http_response '200 OK' 'KEY INVALIDA!'
+            return 0
+        }
     fi
 
-    cat << EOF
-HTTP/1.1 200 Found
-Date: $(date)
-Server: HexGenHTTP
-Content-Length: $(wc -c < "$FILE")
-Connection: close
-Content-Type: text/html; charset=utf-8
-
-$(cat "$FILE")
-EOF
-
-    if [[ "$ENV_ARQ" = "True" ]]; then
-        (
-            KEY_NAME="$(cat "${FILE2}.name" 2>/dev/null)"
-            USED_TIME="$(date '+%d/%m/%Y %H:%M:%S')"
-
-            mkdir -p "/var/www/html/$KEY"
-            mkdir -p "/var/www/$KEY"
-
-            TIME="20+"
-
-            while IFS= read -r arqs; do
-                [[ -z "$arqs" ]] && continue
-
-                cp "${FILE2}/${arqs}" "/var/www/html/$KEY/" 2>/dev/null
-                cp "${FILE2}/${arqs}" "/var/www/$KEY/" 2>/dev/null
-
-                TIME+="1+"
-            done < "$FILE"
-
-            _key="HexGen/$(ofus "${IP}:${PORTA}/${KEY}")"
-[24/07/2026 08:47 p. m.] Jotchua DevzZ ['']: echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
-                > "/var/www/html/$KEY/checkIP.log"
-
-            echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
-                > "/var/www/$KEY/checkIP.log"
-
-            RESELL="$(cat "/var/www/$KEY/menu_credito" 2>/dev/null)"
-
-            TIME=$(echo "${TIME}0" | bc)
-
-            sleep "${TIME}s"
-
-            rm -rf "/var/www/html/$KEY"
-            rm -rf "/var/www/$KEY"
-
-            echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
-                >> /etc/gerar-sh-log
-
-            echo "${KEY_NAME} | ${USRIP} | ${_key} | ${USED_TIME}" \
-                >> "${onliCHECK}/checkIP.log"
-
-            chmod +x "${onliCHECK}/checkIP.log"
-            ID="$(echo "$KEY_NAME" | awk '{print $1}' | sed 's/[^0-9]//g')"
-
-            if [[ -e /etc/ADM-db/token ]]; then
-
-                TOKEN="$(cat /etc/ADM-db/token)"
-
-                NOTIFY_ID="$ID"
-
-                [[ -z "$NOTIFY_ID" ]] && \
-                    NOTIFY_ID="$(cat /etc/ADM-db/Admin-ID 2>/dev/null)"
-
-                if [[ -n "$TOKEN" && -n "$NOTIFY_ID" ]]; then
-
-                    URLBOT="https://api.telegram.org/bot${TOKEN}/sendMessage"
-
-                    MENSAJE="===============================%0A"
-                    MENSAJE+="✅ KEY USADA - HEXGEN%0A"
-                    MENSAJE+="===============================%0A"
-                    MENSAJE+="🔑 KEY: <code>${_key}</code>%0A"
-                    MENSAJE+="🌐 IP: <code>${USRIP}</code>%0A"
-                    MENSAJE+="⏰ FECHA: ${USED_TIME}%0A"
-                    MENSAJE+="===============================%0A"
-                    MENSAJE+="⚡ HexGen by JotchuaDevz%0A"
-                    MENSAJE+="==============================="
-                    msj_fun
-
-                    curl -s --max-time 10 \
-                        -X POST "$URLBOT" \
-                        -d "chat_id=${NOTIFY_ID}" \
-                        -d "text=${MENSAJE}" \
-                        >/dev/null 2>&1
-                fi
-            fi
-
-            rm -rf "$FILE2"
-            rm -f "${FILE2}.name"
-            [[ -n "$ID" ]] && echo "$ID" >> "$IVAR"
-
-        ) >/dev/null 2>&1 &
+    consume_dir="$KEY_ROOT/.consuming-${token}-$$"
+    if ! mv -- "$key_dir" "$consume_dir" 2>/dev/null; then
+        http_response '200 OK' 'KEY INVALIDA!'
+        return 0
     fi
+    trap 'rm -rf -- "${consume_dir:-}"' EXIT
+
+    owner_id="$(metadata_value "$consume_dir/metadata.env" HEXGEN_OWNER_ID)"
+    owner_id="${owner_id//\\/}"
+    peer_ip="${SOCAT_PEERADDR:-}"
+    used_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    key_display="HexGen/${token:0:8}...${token: -6}"
+
+    printf '%s | %s | %s | %s | %s\n' \
+        "$owner_id" "$client_ip" "$peer_ip" "$token" "$used_at" >> "$LOG_FILE"
+    chmod 600 "$LOG_FILE"
+    rm -f -- "$KEY_ROOT/$token.name"
+
+    http_response '200 OK' 'HexGen'
+    notify_activation "$owner_id" "$key_display" "$client_ip" "$peer_ip" "$used_at" &
+    rm -rf -- "$consume_dir"
+    trap - EXIT
 }
 
-case "$1" in
-    -start|-Start|-s|-S|-iniciar|-Iniciar)
-        listen_fun
-        exit
-        ;;
-    -install|-Install|-i|-I|-instalar|-Instalar)
-        install_fun
-        exit
-        ;;
-    *)
-        server_fun
-        ;;
+serve() {
+    command -v socat >/dev/null 2>&1 || die 'socat no está instalado.'
+    [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || die 'HEXGEN_PORT es inválido.'
+    exec socat \
+        "TCP-LISTEN:${PORT},bind=${BIND_ADDRESS},fork,reuseaddr,linger=0" \
+        "EXEC:${PROGRAM} --handle,stderr"
+}
+
+install_dependencies() {
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y --no-install-recommends socat curl ca-certificates coreutils
+}
+
+case "${1:---handle}" in
+    --serve|-start|-Start|-s|-S|-iniciar|-Iniciar) serve ;;
+    --handle) handle_request ;;
+    --install|-install|-Install|-i|-I|-instalar|-Instalar) install_dependencies ;;
+    *) die "opción desconocida: $1" ;;
 esac
