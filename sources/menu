@@ -1,56 +1,51 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-menu_src () {
-bot_retorno="🔹 <b>PANEL DE COMANDOS</b> 🔹\n"
+menu_src() {
+    local used generator_status
+    used="$(grep -c "^${chatuser}$" /etc/http-instas 2>/dev/null || true)"
+    [[ "$used" =~ ^[0-9]+$ ]] || used=0
 
-unset usadas
-usadas="$(grep -c "^${chatuser}$" /etc/http-instas 2>/dev/null)"
-[[ -z "$usadas" ]] && usadas="0"
-k_used="$usadas"
+    if systemctl is-active --quiet hexgen-http.service; then
+        generator_status='ONLINE'
+    else
+        generator_status='OFFLINE'
+    fi
 
-	 if [[ $(echo $permited|grep "${chatuser}") = "" ]]; then
-		 if [[ $(cat ${CID}|grep "${chatuser}") = "" ]]; then
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🔑 Keys usadas: <b>$k_used</b>\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🆔 /ID — muestra tu ID\n"
-			 bot_retorno+="📋 /menu — muestra este menu\n"
-			 bot_retorno+="❓ /ayuda — ayuda de los comandos\n"
-			 bot_retorno+="$LINE\n"
-			 msj_fun
-		 else
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🔑 Keys usadas: <b>$k_used</b>\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🆔 /ID — muestra tu ID\n"
-			 bot_retorno+="⚙️ /install — instalador\n"
-			 bot_retorno+="📋 /menu — muestra este menu\n"
-			 bot_retorno+="❓ /ayuda — ayuda de los comandos\n"
-			 bot_retorno+="$LINE\n"
-			 menu_print
-		 fi
-		 
-	 else
-		 unset PID_GEN
-		 if systemctl is-active --quiet hexgen-http.service; then
-			 PID_GEN='🟢 Online'
-		 else
-			 PID_GEN='🔴 Offline'
-		 fi
+    bot_retorno="<b>HEX TUNNEL — PANEL</b>\n"
+    bot_retorno+="$LINE\n"
+    bot_retorno+="Activaciones usadas: <b>${used}</b>\n"
 
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="🖥️ Generador: $PID_GEN\n"
-		 bot_retorno+="🔑 Keys usadas: <b>$k_used</b>\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="📊 /infosys — info del sistema\n"
-		 bot_retorno+="📜 /list — lista de ID permitidas\n"
-		 bot_retorno+="⚙️ /install — instalador\n"
-		 bot_retorno+="📋 /menu — muestra este menu\n"
-		 bot_retorno+="❓ /ayuda — ayuda de los comandos\n"
-		 bot_retorno+="🧹 /cache — limpiar cache RAM\n"
-		 bot_retorno+="🔄 /update — actualiza el BotGen\n"
-		 bot_retorno+="♻️ /reboot — reinicia el servidor vps\n"
-		 bot_retorno+="$LINE\n"
-		 menu_print
-	 fi	
+    if ! grep -Fxq "$chatuser" <<< "$permited"; then
+        if ! grep -Fxq "$chatuser" "$CID" 2>/dev/null; then
+            bot_retorno+="$LINE\n"
+            bot_retorno+="/ID — mostrar tu ID de Telegram\n"
+            bot_retorno+="/menu — abrir este panel\n"
+            bot_retorno+="/ayuda — instrucciones\n"
+            bot_retorno+="$LINE"
+            msj_fun
+        else
+            bot_retorno+="$LINE\n"
+            bot_retorno+="/keygen — generar una key de un solo uso\n"
+            bot_retorno+="/install — mostrar el instalador RC\n"
+            bot_retorno+="/ID — mostrar tu ID\n"
+            bot_retorno+="/menu — abrir este panel\n"
+            bot_retorno+="$LINE"
+            menu_print
+        fi
+    else
+        bot_retorno+="Servidor de validación: <b>${generator_status}</b>\n"
+        bot_retorno+="$LINE\n"
+        bot_retorno+="/keygen — generar una key\n"
+        bot_retorno+="/install — comando de instalación\n"
+        bot_retorno+="/power — iniciar o detener validación\n"
+        bot_retorno+="/list — IDs autorizados\n"
+        bot_retorno+="/add — autorizar ID\n"
+        bot_retorno+="/del — revocar ID\n"
+        bot_retorno+="/infosys — estado del VPS\n"
+        bot_retorno+="/cache — limpiar caché RAM\n"
+        bot_retorno+="/update — actualizar el bot\n"
+        bot_retorno+="/reboot — reiniciar el VPS\n"
+        bot_retorno+="$LINE"
+        menu_print
+    fi
 }
