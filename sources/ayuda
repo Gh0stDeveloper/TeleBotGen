@@ -1,57 +1,38 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-ayuda_src () {
-bot_retorno="🔹 <b>MENÚ DE AYUDA</b> 🔹\n"
-	 if [[ $(echo $permited|grep "${chatuser}") = "" ]]; then
-		 if [[ $(cat ${CID}|grep "${chatuser}") = "" ]]; then
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🆔 <b>/ID</b>\n muestra tu ID de telegram\n para tener acceso al /keygen\n deves enviar tu ID al admin @Jotchua_DevzZ\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🔑 <b>(Boton) Keygen</b>\n genera una key para\n el instalador del script\n para tener acceso\n deves enviar tu ID al admin @Jotchua_DevzZ\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="📋 <b>/menu</b>\n muestra el menu\n de comandos disponibles\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="❓ <b>/ayuda</b>\n muestra este menu de ayuda\n"
-			 bot_retorno+="$LINE\n"
-		 else
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🆔 <b>/ID</b>\n muestra tu ID de telegram\n para tener acceso al /keygen\n deves enviar tu ID al admin @Jotchua_DevzZ\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="🔑 <b>(Boton) Keygen</b>\n genera una key para\n el instalador del script\n para tener acceso\n deves enviar tu ID al admin @Jotchua_DevzZ\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="⚙️ <b>/instal</b>\n muestra el link de instalacion\n del script para usar tu key\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="📋 <b>/menu</b>\n muestra el menu\n de comandos disponibles\n"
-			 bot_retorno+="$LINE\n"
-			 bot_retorno+="❓ <b>/ayuda</b>\n muestra este menu de ayuda\n"
-			 bot_retorno+="$LINE\n"
-		 fi
-	 else
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="📊 <b>/infosys</b>\n muestra informacion del sistema\n Ram, Cpu, Fecha y Hora\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="🆔 <b>/ID</b>\n muestra tu ID de telegram\n para tener acceso al /keygen\n deves enviar tu ID al admin @Jotchua_DevzZ\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="➕ <b>/add</b>\n añade nuevo ID\n para dar acceso /keygen\n <u>modo de uso</u>\n /add 123456789\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="➖ <b>/del</b>\n elimina los ID\n antes deves usar /list\n <u>modo de uso</u>\n /del 4\n /del 6\n etc\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="📜 <b>/list</b>\n muestra una lista de id\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="🔑 <b>(Boton) Keygen</b>\n genera una key para\n el instalador del script\n para tener acceso\n deves enviar tu ID al admin @Jotchua_DevzZ\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="⚙️ <b>/instal</b>\n muestra el link de instalacion\n del script para usar tu key\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="🔌 <b>/power</b>\n poner o sacar de linea el generador\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="📋 <b>/menu</b>\n muestra el menu\n de comandos disponibles\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="❓ <b>/ayuda</b>\n muestra este menu de ayuda\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="🧹 <b>/cache</b>\n limpia el cache contenido en la ram\n"
-		 bot_retorno+="$LINE\n"
-		 bot_retorno+="♻️ <b>/reboot</b>\n Reinicia el servidor vps\n"
-		 bot_retorno+="$LINE\n"
-	 fi
-msj_fun
+ayuda_src() {
+    local is_admin=0 is_allowed=0
+    grep -Fxq "$chatuser" <<< "$permited" && is_admin=1
+    grep -Fxq "$chatuser" "$CID" 2>/dev/null && is_allowed=1
+
+    bot_retorno="<b>HEX TUNNEL — AYUDA</b>\n"
+    bot_retorno+="$LINE\n"
+    bot_retorno+="/ID — muestra tu ID de Telegram.\n"
+    bot_retorno+="/menu — abre el panel disponible para tu cuenta.\n"
+    bot_retorno+="/ayuda — muestra estas instrucciones.\n"
+
+    if ((is_admin == 1 || is_allowed == 1)); then
+        bot_retorno+="$LINE\n"
+        bot_retorno+="/keygen — genera una key criptográfica de un solo uso.\n"
+        bot_retorno+="/install — muestra el comando del instalador Hex Tunnel RC.\n"
+        bot_retorno+="La key se solicita antes del selector de módulos, caduca en cuatro horas y se consume al activarse.\n"
+    else
+        bot_retorno+="$LINE\n"
+        bot_retorno+="Envía tu ID al administrador del bot para solicitar acceso a /keygen.\n"
+    fi
+
+    if ((is_admin == 1)); then
+        bot_retorno+="$LINE\n"
+        bot_retorno+="/add — autoriza un ID. También puede responderse al mensaje forzado.\n"
+        bot_retorno+="/del — revoca un ID autorizado.\n"
+        bot_retorno+="/list — muestra y exporta la lista de IDs.\n"
+        bot_retorno+="/power — inicia o detiene el servidor de validación.\n"
+        bot_retorno+="/infosys — muestra el estado del VPS.\n"
+        bot_retorno+="/cache — libera caché de páginas del sistema.\n"
+        bot_retorno+="/update — actualiza TeleBotGen desde el repositorio configurado.\n"
+        bot_retorno+="/reboot — reinicia el VPS.\n"
+    fi
+
+    bot_retorno+="$LINE"
+    msj_fun
 }
