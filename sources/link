@@ -1,9 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-link_src () {
-	bot_retorno="$LINE\n"
-	bot_retorno+="⚙️ <b>Comando de instalación:</b>\n"
-	bot_retorno+="<code>sudo apt update -y; apt upgrade -y; wget -qO install.sh https://raw.githubusercontent.com/JotchuaDevz/Porno-OS/refs/heads/main/install.sh; chmod +x install.sh; ./install.sh</code>\n"
-	bot_retorno+="$LINE\n"
-msj_fun
+link_src() {
+    local repository="${HEXTUNNEL_REPOSITORY:-Gh0stDeveloper/Porno-OS}"
+    local ref="${HEXTUNNEL_REF:-3f2003e5934c898908eabd187fc080f0f24e7c82}"
+    local command bot_retorno
+
+    command="sudo apt-get update -y && sudo apt-get install -y --no-install-recommends git ca-certificates curl && sudo rm -rf /opt/hextunnel-installer && sudo git init /opt/hextunnel-installer && sudo git -C /opt/hextunnel-installer remote add origin https://github.com/${repository}.git && sudo git -C /opt/hextunnel-installer fetch --depth 1 origin ${ref} && sudo git -C /opt/hextunnel-installer checkout --detach FETCH_HEAD && sudo bash /opt/hextunnel-installer/bin/hextunnel-bot-install"
+
+    bot_retorno="$LINE\n"
+    bot_retorno+="<b>INSTALADOR HEX TUNNEL RC</b>\n"
+    bot_retorno+="$LINE\n"
+    bot_retorno+="Primero genera una key con /keygen. Después ejecuta:\n"
+    bot_retorno+="<code>${command}</code>\n"
+    bot_retorno+="$LINE\n"
+    bot_retorno+="El instalador pedirá la key antes de mostrar el menú de módulos.\n"
+    bot_retorno+="Debian 12, Ubuntu 22.04/24.04, amd64.\n"
+    bot_retorno+="$LINE"
+    msj_fun
 }
