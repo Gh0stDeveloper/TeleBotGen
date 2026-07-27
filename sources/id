@@ -1,48 +1,51 @@
+#!/usr/bin/env bash
 
-#!/bin/bash
-
-myid_src () {
-bot_retorno="====================\n"
-          bot_retorno+="SU ID: <code>${chatuser}</code>\n"
-          bot_retorno+="====================\n"
-msj_fun
+myid_src() {
+    bot_retorno="$LINE\n"
+    bot_retorno+="Tu ID: <code>${chatuser}</code>\n"
+    bot_retorno+="$LINE"
+    msj_fun
 }
 
-deleteID_reply () {
-delid=$(sed -n ${message_text[$id]}p ${CID})
-sed -i "${message_text[$id]}d" ${CID}
-bot_retorno="$LINE\n"
-          bot_retorno+="ID eliminado con exito!\n"
-          bot_retorno+="ID: <code>${delid}</code>\n"
-          bot_retorno+="$LINE\n"
-msj_fun
-upfile_src
+deleteID_reply() {
+    local line_number="${message_text[$id]:-}" deleted_id
+    if [[ ! "$line_number" =~ ^[0-9]+$ ]]; then
+        bot_retorno="$LINE\nIndica el número de línea mostrado por /list.\n$LINE"
+        msj_fun
+        return 1
+    fi
+    deleted_id="$(sed -n "${line_number}p" "$CID")"
+    if [[ -z "$deleted_id" ]]; then
+        bot_retorno="$LINE\nNo existe una autorización en esa línea.\n$LINE"
+        msj_fun
+        return 1
+    fi
+    sed -i "${line_number}d" "$CID"
+    bot_retorno="$LINE\nID revocado: <code>${deleted_id}</code>\n$LINE"
+    msj_fun
+    upfile_src
 }
 
-addID_reply () {
-      [[ $(cat ${CID}|grep "${message_text[$id]}") = "" ]] && {
-        echo "/${message_text[$id]}" >> ${CID}
-          bot_retorno="$LINE\n"
-          bot_retorno+="✅ <b>ID agregado</b> ✅\n"
-          bot_retorno+="$LINE\n"
-          bot_retorno+="<code>$(< ${CID})</code>\n"
-          bot_retorno+="$LINE\n"
-          bot_retorno+="New ID: <code>${message_text[$id]}</code>\n"
-          bot_retorno+="$LINE"
+addID_reply() {
+    local new_id="${message_text[$id]:-}"
+    new_id="${new_id#/}"
+    if [[ ! "$new_id" =~ ^[0-9]+$ ]]; then
+        bot_retorno="$LINE\nEl ID debe contener únicamente números.\n$LINE"
+        msj_fun
+        return 1
+    fi
+    if grep -Fxq "$new_id" "$CID" 2>/dev/null; then
+        bot_retorno="$LINE\nEl ID <code>${new_id}</code> ya está autorizado.\n$LINE"
+        msj_fun
+        return 0
+    fi
 
-          bot_retor="$LINE\n"
-          bot_retor+="El Administrador te autoriso\n"
-          bot_retor+="para usar el comando /keygen\n"
-          bot_retor+="digita el comando /menu\n"
-          bot_retor+="para actualizar el menu de comandos\n"
-          bot_retor+="$LINE\n"
-      msj_fun
-      msj_add ${message_text[$id]}
-      upfile_src
-    } || {
-          bot_retorno="====ERROR====\n"
-          bot_retorno+="Este ID ya existe\n"
-          bot_retorno+="$LINE\n"
-      msj_fun
-    }
+    printf '%s\n' "$new_id" >> "$CID"
+    chmod 600 "$CID"
+    bot_retorno="$LINE\nID autorizado: <code>${new_id}</code>\n$LINE"
+    msj_fun
+
+    bot_retor="$LINE\nEl administrador autorizó tu cuenta para usar /keygen. Abre /menu para actualizar el panel.\n$LINE"
+    msj_add "$new_id"
+    upfile_src
 }
