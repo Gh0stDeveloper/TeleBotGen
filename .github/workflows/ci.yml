@@ -1,0 +1,49 @@
+name: TeleBotGen CI
+on:
+  push:
+    branches: ['feat/**', 'fix/**', 'main']
+  pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validation tools
+        run: sudo apt-get update -y && sudo apt-get install -y shellcheck openssl
+      - name: Validate Bash syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find . -type f -name '*.sh' -print0)
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            bash -n "sources/$item"
+          done < sources/lista-bot
+      - name: Run ShellCheck errors
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          files=(confbot.sh http-server.sh update.sh)
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            files+=("sources/$item")
+          done < sources/lista-bot
+          files+=(tests/test-key-flow.sh)
+          shellcheck --severity=error -x "${files[@]}"
+      - name: Test one-time key lifecycle
+        run: bash tests/test-key-flow.sh
+      - name: Reject obsolete installation endpoints
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ! grep -RIE --exclude-dir=.git --exclude='README.md' \
+            'JotchuaDevz/(TeleBotGen|Porno-OS)|apt([ -]+get)? upgrade|refs/heads/main/install\.sh' \
+            confbot.sh http-server.sh update.sh sources
