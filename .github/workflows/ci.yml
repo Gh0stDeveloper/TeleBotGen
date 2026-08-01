@@ -35,6 +35,17 @@ jobs:
             bash -n "$file"
           done
 
+      - name: Validate ShellBot runtime compatibility
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ! grep -Eq '^set -[^[:space:]]*u' sources/BotGen.sh
+          env -u _SHELLBOT_SH_ bash -c '
+            set -Eeo pipefail
+            source ./ShellBot.sh
+            declare -F ShellBot.init >/dev/null
+          '
+
       - name: Run ShellCheck errors
         shell: bash
         run: |
