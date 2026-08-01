@@ -15,6 +15,8 @@ grep -Fq 'command curl --config' "$ROOT/sources/BotGen.sh"
 grep -Fq 'shellbot_init_rc=$?' "$ROOT/sources/BotGen.sh"
 grep -Fq '${_SHELLBOT_INIT_:-}' "$ROOT/sources/BotGen.sh"
 grep -Fq 'declare -F ShellBot.getUpdates' "$ROOT/sources/BotGen.sh"
-grep -Fq 'if ! ShellBot.getUpdates' "$ROOT/sources/BotGen.sh"
+! grep -Fq 'if ! ShellBot.getUpdates' "$ROOT/sources/BotGen.sh"
+grep -Fq 'ShellBot.getUpdates --limit 100' "$ROOT/sources/BotGen.sh"
+grep -Fq 'se procesan siempre las actualizaciones cargadas' "$ROOT/sources/BotGen.sh"
 
 printf 'ShellBot runtime hardening checks passed.\n'
