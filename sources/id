@@ -1,51 +1,11 @@
 #!/usr/bin/env bash
 
 myid_src() {
-    bot_retorno="$LINE\n"
-    bot_retorno+="Tu ID: <code>${chatuser}</code>\n"
+    bot_retorno="<b>IDENTIDAD TELEGRAM</b>\n$LINE\n"
+    bot_retorno+="Tu ID: <code>${actor_id}</code>\n"
+    bot_retorno+="Chat actual: <code>$(html_escape "$current_chat_id")</code>\n"
+    bot_retorno+="Tipo: <b>$(html_escape "$current_chat_type")</b>\n"
+    bot_retorno+="Rol: <b>$(html_escape "$actor_role")</b>\n"
     bot_retorno+="$LINE"
     msj_fun
-}
-
-deleteID_reply() {
-    local line_number="${message_text[$id]:-}" deleted_id
-    if [[ ! "$line_number" =~ ^[0-9]+$ ]]; then
-        bot_retorno="$LINE\nIndica el número de línea mostrado por /list.\n$LINE"
-        msj_fun
-        return 1
-    fi
-    deleted_id="$(sed -n "${line_number}p" "$CID")"
-    if [[ -z "$deleted_id" ]]; then
-        bot_retorno="$LINE\nNo existe una autorización en esa línea.\n$LINE"
-        msj_fun
-        return 1
-    fi
-    sed -i "${line_number}d" "$CID"
-    bot_retorno="$LINE\nID revocado: <code>${deleted_id}</code>\n$LINE"
-    msj_fun
-    upfile_src
-}
-
-addID_reply() {
-    local new_id="${message_text[$id]:-}"
-    new_id="${new_id#/}"
-    if [[ ! "$new_id" =~ ^[0-9]+$ ]]; then
-        bot_retorno="$LINE\nEl ID debe contener únicamente números.\n$LINE"
-        msj_fun
-        return 1
-    fi
-    if grep -Fxq "$new_id" "$CID" 2>/dev/null; then
-        bot_retorno="$LINE\nEl ID <code>${new_id}</code> ya está autorizado.\n$LINE"
-        msj_fun
-        return 0
-    fi
-
-    printf '%s\n' "$new_id" >> "$CID"
-    chmod 600 "$CID"
-    bot_retorno="$LINE\nID autorizado: <code>${new_id}</code>\n$LINE"
-    msj_fun
-
-    bot_retor="$LINE\nEl administrador autorizó tu cuenta para usar /keygen. Abre /menu para actualizar el panel.\n$LINE"
-    msj_add "$new_id"
-    upfile_src
 }
