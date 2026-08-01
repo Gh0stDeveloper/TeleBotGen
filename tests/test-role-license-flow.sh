@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 export TELEBOTGEN_ADMIN_FILE="$TMP/Admin-ID"
 export TELEBOTGEN_RESELLER_FILE="$TMP/Reseller-ID"
 export TELEBOTGEN_GROUP_FILE="$TMP/Allowed-Groups"
+export TELEBOTGEN_KEY_DURATION_FILE="$TMP/Key-Duration-Minutes"
 export TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE="$TMP/admin-token"
 printf 'test-token\n' > "$TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE"
 chmod 600 "$TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE"
@@ -16,6 +17,8 @@ chmod 600 "$TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE"
 source "$ROOT/sources/license_api"
 # shellcheck source=/dev/null
 source "$ROOT/sources/roles"
+# shellcheck source=/dev/null
+source "$ROOT/sources/gerar_key"
 roles_prepare_files
 
 printf '100\n' > "$TELEBOTGEN_ADMIN_FILE"
@@ -27,9 +30,18 @@ role_is_admin 100
 role_is_reseller 200
 group_is_allowed -1001234567890
 ! group_is_allowed -100999
-role_validate_duration reseller 43200
-! role_validate_duration reseller 43201
-role_validate_duration admin 525600
+keygen_context_allowed private 400
+keygen_context_allowed group -1001234567890
+! keygen_context_allowed group -100999
+
+[[ "$(key_duration_get)" == 240 ]]
+key_duration_set 1440
+[[ "$(key_duration_get)" == 1440 ]]
+valid_key_duration 1
+valid_key_duration 525600
+! valid_key_duration 0
+! valid_key_duration 525601
+! valid_key_duration texto
 
 license_api_all() {
     cat <<'JSON'
@@ -90,4 +102,64 @@ grep -Fq 'command -v curl' <<< "$command_text"
 grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' <<< "$command_text"
 [[ "$(hextunnel_upgrade_command)" == 'sudo hextunnel-upgrade' ]]
 
-echo 'Role and license flow tests passed.'
+# Flujo real de /Keygen dentro de un grupo permitido: el dueño siempre es el remitente.
+license_api_active_for_owner() {
+    return 0
+}
+
+license_api_create() {
+    printf '%s\n' "$@" > "$TMP/create-args"
+    cat <<'JSON'
+{
+  "id": "11111111-2222-3333-4444-555555555555",
+  "key": "HT-SELF-SERVICE-TEST",
+  "expires_at": "2099-01-01T00:00:00Z"
+}
+JSON
+}
+
+license_api_revoke() {
+    printf '%s\n' "$@" > "$TMP/revoke-args"
+}
+
+send_html() {
+    local chat_id="$1" text="$2"
+    printf '%s|%s\n' "$chat_id" "$text" >> "$TMP/messages"
+}
+
+msj_fun() {
+    printf '%b' "$bot_retorno" > "$TMP/private-message"
+}
+
+LINE='============================'
+current_chat_type='group'
+current_chat_id='-1001234567890'
+actor_id='400'
+actor_username='alice_test'
+actor_role='public'
+comando=(/Keygen)
+key_duration_set 60
+rm -f "$TMP/create-args" "$TMP/messages"
+gerar_key
+
+mapfile -t create_args < "$TMP/create-args"
+[[ "${create_args[0]}" == 60 ]]
+[[ "${create_args[1]}" == 400 ]]
+[[ "${create_args[2]}" == alice_test ]]
+[[ "${create_args[3]}" == 400 ]]
+[[ "${create_args[4]}" == allowed-group-member ]]
+[[ "${create_args[5]}" == -1001234567890 ]]
+grep -Fq '400|<b>HEX TUNNEL — TU LICENCIA</b>' "$TMP/messages"
+grep -Fq 'HT-SELF-SERVICE-TEST' "$TMP/messages"
+grep -Fq -- '-1001234567890|<b>Key generada.</b>' "$TMP/messages"
+
+# El usuario no puede enviar ID, usuario ni duración manualmente.
+rm -f "$TMP/create-args" "$TMP/private-message"
+current_chat_type='private'
+current_chat_id='400'
+comando=(/Keygen 999 123456 usuario)
+gerar_key
+[[ ! -e "$TMP/create-args" ]]
+grep -Fq 'Usa solamente <code>/Keygen</code>' "$TMP/private-message"
+
+echo 'Role, group and self-service license flow tests passed.'
