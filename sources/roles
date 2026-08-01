@@ -7,8 +7,10 @@ GROUP_FILE="${TELEBOTGEN_GROUP_FILE:-/etc/ADM-db/Allowed-Groups}"
 RESELLER_MAX_MINUTES="${TELEBOTGEN_RESELLER_MAX_MINUTES:-43200}"
 
 roles_prepare_files() {
-    install -d -m 700 /etc/ADM-db
+    local file directory
     for file in "$ADMIN_FILE" "$RESELLER_FILE" "$GROUP_FILE"; do
+        directory="$(dirname -- "$file")"
+        install -d -m 700 "$directory"
         [[ -e "$file" ]] || : > "$file"
         chmod 600 "$file"
     done
