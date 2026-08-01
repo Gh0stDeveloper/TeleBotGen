@@ -1,113 +1,90 @@
 #!/usr/bin/env bash
-# Key generator for the Hex Tunnel compatibility activation channel.
+# Generación de licencias mediante GhostDeveloperLicenseServer.
 
-KEY_ROOT="${HEXGEN_KEY_ROOT:-/etc/http-shell}"
-KEY_TTL_MINUTES="${HEXGEN_KEY_TTL_MINUTES:-240}"
-KEY_PORT="${HEXGEN_PORT:-8888}"
-HEXTUNNEL_REPOSITORY="${HEXTUNNEL_REPOSITORY:-Gh0stDeveloper/Porno-OS}"
-HEXTUNNEL_REF="${HEXTUNNEL_REF:-3f2003e5934c898908eabd187fc080f0f24e7c82}"
-
-mkdir -p "$KEY_ROOT"
-chmod 700 "$KEY_ROOT"
-
-hexgen_public_host() {
-    local value="${HEXGEN_PUBLIC_HOST:-}"
-    if [[ -z "$value" && -s /etc/ADM-db/public-host ]]; then
-        value="$(tr -d '\r\n' < /etc/ADM-db/public-host)"
+resolve_key_target() {
+    local requested="${comando[2]:-}" target
+    if [[ "$requested" =~ ^[0-9]+$ ]]; then
+        target="$requested"
+    elif [[ "${reply_user_id:-}" =~ ^[0-9]+$ ]]; then
+        target="$reply_user_id"
+    else
+        target="$actor_id"
     fi
-    if [[ -z "$value" ]]; then
-        value="$(curl -4fsS --connect-timeout 5 --max-time 10 https://api.ipify.org 2>/dev/null || true)"
-    fi
-    [[ "$value" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
-    printf '%s' "$value"
+    printf '%s' "$target"
 }
 
-hexgen_key_codec() {
-    local input="${1:-}" output="" char index
-    for ((index=0; index<${#input}; index++)); do
-        char="${input:index:1}"
-        case "$char" in
-            '.') char='*' ;;
-            '*') char='.' ;;
-            '1') char='@' ;;
-            '@') char='1' ;;
-            '2') char='?' ;;
-            '?') char='2' ;;
-            '4') char='%' ;;
-            '%') char='4' ;;
-            '-') char='K' ;;
-            'K') char='-' ;;
-        esac
-        output+="$char"
-    done
-    printf '%s' "$output" | rev
-}
-
-hexgen_schedule_expiration() {
-    local token="$1" key_dir="$KEY_ROOT/$token" owner_file="$KEY_ROOT/$token.name"
-    if command -v systemd-run >/dev/null 2>&1; then
-        systemd-run --quiet --collect \
-            --unit="hexgen-key-expire-${token:0:16}" \
-            --on-active="${KEY_TTL_MINUTES}m" \
-            /usr/bin/rm -rf -- "$key_dir" "$owner_file" >/dev/null 2>&1 || true
-    elif command -v at >/dev/null 2>&1; then
-        printf "rm -rf -- %q %q\n" "$key_dir" "$owner_file" | at "now + ${KEY_TTL_MINUTES} minutes" >/dev/null 2>&1 || true
+resolve_key_username() {
+    local requested="${comando[3]:-}" value
+    if [[ -n "$requested" ]]; then
+        value="$requested"
+    elif [[ -n "${reply_username:-}" ]]; then
+        value="$reply_username"
+    else
+        value="${actor_username:-}"
     fi
-}
-
-hexgen_create_key() {
-    local owner_id="$1" fixed_ip="${2:-}" host token key_dir created_at expires_at
-    host="$(hexgen_public_host)" || return 1
-    token="$(openssl rand -hex 20)" || return 1
-    key_dir="$KEY_ROOT/$token"
-    created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    expires_at="$(date -u -d "+${KEY_TTL_MINUTES} minutes" +%Y-%m-%dT%H:%M:%SZ)"
-
-    install -d -m 700 "$key_dir"
-    printf 'HexGen\n' > "$key_dir/HexGen"
-    cat > "$key_dir/metadata.env" <<EOF
-HEXGEN_PRODUCT=hextunnel
-HEXGEN_STATUS=active
-HEXGEN_OWNER_ID=$(printf '%q' "$owner_id")
-HEXGEN_CREATED_AT=$(printf '%q' "$created_at")
-HEXGEN_EXPIRES_AT=$(printf '%q' "$expires_at")
-EOF
-    if [[ -n "$fixed_ip" ]]; then
-        printf '%s\n' "$fixed_ip" > "$key_dir/keyfixa"
-    fi
-    printf '%s\n' "$owner_id" > "$KEY_ROOT/$token.name"
-    chmod 600 "$key_dir/HexGen" "$key_dir/metadata.env" "$KEY_ROOT/$token.name"
-    [[ -f "$key_dir/keyfixa" ]] && chmod 600 "$key_dir/keyfixa"
-    hexgen_schedule_expiration "$token"
-
-    printf 'HexGen/%s' "$(hexgen_key_codec "${host}:${KEY_PORT}/${token}")"
-}
-
-hextunnel_install_command() {
-    cat <<EOF
-sudo apt-get update -y && sudo apt-get install -y --no-install-recommends git ca-certificates curl && sudo rm -rf /opt/hextunnel-installer && sudo git init /opt/hextunnel-installer && sudo git -C /opt/hextunnel-installer remote add origin https://github.com/${HEXTUNNEL_REPOSITORY}.git && sudo git -C /opt/hextunnel-installer fetch --depth 1 origin ${HEXTUNNEL_REF} && sudo git -C /opt/hextunnel-installer checkout --detach FETCH_HEAD && sudo bash /opt/hextunnel-installer/bin/hextunnel-bot-install
-EOF
+    value="${value#@}"
+    value="$(tr -cd 'A-Za-z0-9_.-' <<< "$value")"
+    printf '%s' "${value:0:64}"
 }
 
 gerar_key() {
-    local owner_id key command bot_retorno
-    owner_id="${chatuser:-${message_from_id:-${callback_query_from_id:-0}}}"
-    key="$(hexgen_create_key "$owner_id" "${IPFIX:-}")" || {
-        bot_retorno="$LINE\nNo se pudo generar la key. Revisa el servicio, OpenSSL y la IP pública.\n$LINE"
+    local minutes="${comando[1]:-240}" owner_id username response key expires_at license_id
+    local install_command upgrade_command delivery_text confirmation
+
+    if ! role_can_generate "$actor_role"; then
+        bot_retorno="$LINE\nTu rol no permite generar licencias.\n$LINE"
+        msj_fun
+        return 0
+    fi
+    if ! role_validate_duration "$actor_role" "$minutes"; then
+        bot_retorno="$LINE\nDuración inválida. Usa minutos enteros. Límite de revendedor: ${RESELLER_MAX_MINUTES} minutos.\n$LINE"
+        msj_fun
+        return 0
+    fi
+
+    owner_id="$(resolve_key_target)"
+    username="$(resolve_key_username)"
+    response="$(license_api_create "$minutes" "$owner_id" "$username" "$actor_id" "$actor_role" "$current_chat_id" 2>/dev/null || true)"
+    if [[ -z "$response" ]] || ! jq empty <<< "$response" >/dev/null 2>&1; then
+        bot_retorno="$LINE\nLa API no pudo crear la licencia. Revisa /api y los logs del servidor.\n$LINE"
+        msj_fun
+        return 1
+    fi
+
+    key="$(jq -r '.key // empty' <<< "$response")"
+    expires_at="$(jq -r '.expires_at // empty' <<< "$response")"
+    license_id="$(jq -r '.id // empty' <<< "$response")"
+    [[ -n "$key" && -n "$license_id" ]] || {
+        bot_retorno="$LINE\nLa API devolvió una licencia incompleta.\n$LINE"
         msj_fun
         return 1
     }
-    command="$(hextunnel_install_command)"
 
-    bot_retorno="<b>HEX TUNNEL — ACTIVACIÓN</b>\n"
-    bot_retorno+="$LINE\n"
-    bot_retorno+="Key de un solo uso:\n<code>${key}</code>\n"
-    bot_retorno+="$LINE\n"
-    bot_retorno+="Comando de instalación RC:\n<code>${command}</code>\n"
-    bot_retorno+="$LINE\n"
-    bot_retorno+="La key caduca en ${KEY_TTL_MINUTES} minutos y se consume al validarse.\n"
-    bot_retorno+="Sistemas: Debian 12, Ubuntu 22.04 y Ubuntu 24.04; arquitectura amd64.\n"
-    bot_retorno+="El instalador pedirá esta key antes de mostrar los módulos.\n"
-    bot_retorno+="$LINE"
-    msj_fun
+    install_command="$(html_escape "$(hextunnel_install_command)")"
+    upgrade_command="$(html_escape "$(hextunnel_upgrade_command)")"
+    delivery_text="<b>HEX TUNNEL — LICENCIA CREADA</b>\n$LINE\n"
+    delivery_text+="Cliente: <code>${owner_id}</code>\n"
+    delivery_text+="Duración: <b>$(license_human_duration "$((minutes*60))")</b>\n"
+    delivery_text+="Vence: <code>$(html_escape "$expires_at")</code>\n"
+    delivery_text+="ID interno: <code>$(html_escape "$license_id")</code>\n"
+    delivery_text+="$LINE\n"
+    delivery_text+="Key:\n<code>$(html_escape "$key")</code>\n"
+    delivery_text+="$LINE\n"
+    delivery_text+="Instalación:\n<code>${install_command}</code>\n"
+    delivery_text+="$LINE\n"
+    delivery_text+="Actualización posterior:\n<code>${upgrade_command}</code>\n"
+    delivery_text+="Estado local: <code>sudo hextunnel-license status</code>\n"
+    delivery_text+="$LINE\n"
+    delivery_text+="Instala Hex Tunnel exclusivamente en una VPS dedicada Debian 12 o Ubuntu 22.04/24.04 amd64/x86_64.\n"
+    delivery_text+="Desarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ\n"
+    delivery_text+="$LINE"
+
+    if [[ "$current_chat_type" == group ]]; then
+        send_to_actor "$delivery_text"
+        confirmation="<b>Licencia generada.</b> Los datos privados fueron enviados al administrador/revendedor que ejecutó el comando. Cliente: <code>${owner_id}</code>."
+        send_html "$current_chat_id" "$confirmation"
+    else
+        bot_retorno="$delivery_text"
+        msj_fun
+    fi
 }
