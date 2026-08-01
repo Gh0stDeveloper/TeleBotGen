@@ -85,11 +85,15 @@ send_to_actor() {
 
 menu_print() {
     local button_name='botao_public'
-    case "$actor_role" in
-        admin) button_name='botao_admin' ;;
-        reseller) button_name='botao_reseller' ;;
-        client) button_name='botao_client' ;;
-    esac
+    if [[ "$current_chat_type" == group ]]; then
+        button_name='botao_group'
+    else
+        case "$actor_role" in
+            admin) button_name='botao_admin' ;;
+            reseller) button_name='botao_reseller' ;;
+            client) button_name='botao_client' ;;
+        esac
+    fi
     send_html "$current_chat_id" "$(printf '%b' "$bot_retorno")" \
         "$(ShellBot.InlineKeyboardMarkup -b "$button_name")"
 }
@@ -98,16 +102,17 @@ botao_admin=''
 botao_reseller=''
 botao_client=''
 botao_public=''
+botao_group=''
 
-ShellBot.InlineKeyboardButton --button botao_admin --line 1 --text 'Generar key' --callback_data '/keygen'
-ShellBot.InlineKeyboardButton --button botao_admin --line 1 --text 'Licencias' --callback_data '/licenses'
-ShellBot.InlineKeyboardButton --button botao_admin --line 2 --text 'Revendedores' --callback_data '/resellers'
+ShellBot.InlineKeyboardButton --button botao_admin --line 1 --text 'Generar mi key' --callback_data '/keygen'
+ShellBot.InlineKeyboardButton --button botao_admin --line 1 --text 'Duración keys' --callback_data '/keytime'
+ShellBot.InlineKeyboardButton --button botao_admin --line 2 --text 'Licencias' --callback_data '/licenses'
 ShellBot.InlineKeyboardButton --button botao_admin --line 2 --text 'Grupos' --callback_data '/groups'
 ShellBot.InlineKeyboardButton --button botao_admin --line 3 --text 'Estado API' --callback_data '/api'
 ShellBot.InlineKeyboardButton --button botao_admin --line 3 --text 'Instalador' --callback_data '/install'
 
-ShellBot.InlineKeyboardButton --button botao_reseller --line 1 --text 'Generar key' --callback_data '/keygen'
-ShellBot.InlineKeyboardButton --button botao_reseller --line 1 --text 'Mis licencias' --callback_data '/mykeys'
+ShellBot.InlineKeyboardButton --button botao_reseller --line 1 --text 'Generar mi key' --callback_data '/keygen'
+ShellBot.InlineKeyboardButton --button botao_reseller --line 1 --text 'Mi licencia' --callback_data '/license'
 ShellBot.InlineKeyboardButton --button botao_reseller --line 2 --text 'Instalador' --callback_data '/install'
 ShellBot.InlineKeyboardButton --button botao_reseller --line 2 --text 'Ayuda' --callback_data '/help'
 
@@ -116,10 +121,16 @@ ShellBot.InlineKeyboardButton --button botao_client --line 1 --text 'Instalador'
 ShellBot.InlineKeyboardButton --button botao_client --line 2 --text 'Actualización' --callback_data '/upgrade'
 ShellBot.InlineKeyboardButton --button botao_client --line 2 --text 'Mi ID' --callback_data '/id'
 
+ShellBot.InlineKeyboardButton --button botao_public --line 1 --text 'Generar mi key' --callback_data '/keygen'
 ShellBot.InlineKeyboardButton --button botao_public --line 1 --text 'Mi ID' --callback_data '/id'
-ShellBot.InlineKeyboardButton --button botao_public --line 1 --text 'Sitio oficial' --callback_data website --url 'https://ghostdeveloper.duckdns.org/'
-ShellBot.InlineKeyboardButton --button botao_public --line 2 --text '@Gh0stDeveloper' --callback_data developer1 --url 'https://t.me/Gh0stDeveloper'
-ShellBot.InlineKeyboardButton --button botao_public --line 2 --text '@Jotchua_DevzZ' --callback_data developer2 --url 'https://t.me/Jotchua_DevzZ'
+ShellBot.InlineKeyboardButton --button botao_public --line 2 --text 'Sitio oficial' --callback_data website --url 'https://ghostdeveloper.duckdns.org/'
+ShellBot.InlineKeyboardButton --button botao_public --line 3 --text '@Gh0stDeveloper' --callback_data developer1 --url 'https://t.me/Gh0stDeveloper'
+ShellBot.InlineKeyboardButton --button botao_public --line 3 --text '@Jotchua_DevzZ' --callback_data developer2 --url 'https://t.me/Jotchua_DevzZ'
+
+ShellBot.InlineKeyboardButton --button botao_group --line 1 --text 'Generar mi key' --callback_data '/keygen'
+ShellBot.InlineKeyboardButton --button botao_group --line 1 --text 'Mi licencia' --callback_data '/license'
+ShellBot.InlineKeyboardButton --button botao_group --line 2 --text 'Mi ID' --callback_data '/id'
+ShellBot.InlineKeyboardButton --button botao_group --line 2 --text 'Ayuda' --callback_data '/help'
 
 while true; do
     ShellBot.getUpdates --limit 100 --offset "$(ShellBot.OffsetNext)" --timeout 30
