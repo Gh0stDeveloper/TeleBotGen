@@ -1,39 +1,48 @@
 #!/usr/bin/env bash
 
 ayuda_src() {
+    local duration_minutes
+    duration_minutes="$(key_duration_get)"
     bot_retorno="<b>HEX TUNNEL — COMANDOS</b>\n$LINE\n"
     bot_retorno+="Comunes:\n"
-    bot_retorno+="/start — mostrar tu acceso y tiempo restante\n"
-    bot_retorno+="/id — mostrar ID de usuario y chat\n"
-    bot_retorno+="/license — estado de licencia\n"
+    bot_retorno+="/start — abrir el menú\n"
+    bot_retorno+="/Keygen — generar tu propia key automáticamente\n"
+    bot_retorno+="/id — mostrar tu ID de Telegram y el ID del chat\n"
+    bot_retorno+="/license — estado de tu licencia\n"
     bot_retorno+="/install — instalador público firmado\n"
     bot_retorno+="/upgrade — actualizador privado\n"
+    bot_retorno+="Duración de nuevas keys: <b>$(license_human_duration "$((duration_minutes*60))")</b>\n"
 
-    case "$actor_role" in
-        reseller)
-            bot_retorno+="$LINE\nRevendedor:\n"
-            bot_retorno+="/keygen [minutos] [telegram_id] [usuario]\n"
-            bot_retorno+="/mykeys — licencias emitidas por ti\n"
-            bot_retorno+="También puedes responder al mensaje de un cliente y ejecutar /keygen minutos.\n"
-            ;;
-        admin)
-            bot_retorno+="$LINE\nAdministrador:\n"
-            bot_retorno+="/keygen [minutos] [telegram_id] [usuario]\n"
-            bot_retorno+="/licenses [telegram_id] — listar licencias\n"
-            bot_retorno+="/revoke license_id [motivo]\n"
-            bot_retorno+="/reset license_id [motivo]\n"
-            bot_retorno+="/addreseller telegram_id · /delreseller telegram_id\n"
-            bot_retorno+="/resellers — listar revendedores\n"
-            bot_retorno+="/allowgroup [chat_id] · /delgroup [chat_id]\n"
-            bot_retorno+="/groups — listar grupos autorizados\n"
-            bot_retorno+="/api — comprobar la API\n"
-            bot_retorno+="/infosys — estado de la VPS\n"
-            bot_retorno+="/update — actualizar TeleBotGen\n"
-            ;;
-    esac
+    if [[ "$current_chat_type" == group ]]; then
+        bot_retorno+="$LINE\nGrupo permitido:\n"
+        bot_retorno+="Cualquier miembro puede usar solamente <code>/Keygen</code>.\n"
+        bot_retorno+="El bot toma automáticamente el ID del usuario que envió el comando y entrega la key por privado.\n"
+    else
+        case "$actor_role" in
+            reseller)
+                bot_retorno+="$LINE\nRevendedor:\n"
+                bot_retorno+="/mykeys — consultar las licencias emitidas desde tu cuenta\n"
+                ;;
+            admin)
+                bot_retorno+="$LINE\nAdministrador:\n"
+                bot_retorno+="/Keytime — consultar la duración global\n"
+                bot_retorno+="/Setkeytime minutos — cambiar la duración global\n"
+                bot_retorno+="/licenses [telegram_id] — listar licencias\n"
+                bot_retorno+="/revoke license_id [motivo]\n"
+                bot_retorno+="/reset license_id [motivo]\n"
+                bot_retorno+="/addreseller telegram_id · /delreseller telegram_id\n"
+                bot_retorno+="/resellers — listar revendedores\n"
+                bot_retorno+="/allowgroup [chat_id] · /delgroup [chat_id]\n"
+                bot_retorno+="/groups — listar grupos autorizados\n"
+                bot_retorno+="/api — comprobar la API\n"
+                bot_retorno+="/infosys — estado de la VPS\n"
+                bot_retorno+="/update — actualizar TeleBotGen\n"
+                ;;
+        esac
+    fi
 
     bot_retorno+="$LINE\n"
-    bot_retorno+="Hex Tunnel debe instalarse en una VPS dedicada amd64/x86_64, separada de la VPS del bot y la API.\n"
+    bot_retorno+="Cada cuenta de Telegram puede mantener una licencia activa. Hex Tunnel debe instalarse en una VPS dedicada amd64/x86_64, separada de la VPS del bot y la API.\n"
     bot_retorno+="Desarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ\n$LINE"
     msj_fun
 }
