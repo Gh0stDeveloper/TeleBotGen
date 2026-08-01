@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TeleBotGen: administración por roles para Hex Tunnel.
-set -Eeuo pipefail
+set -Eeo pipefail
 umask 077
 
 CIDdir="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
@@ -32,6 +32,8 @@ if [[ ! -s /bin/ShellBot.sh ]]; then
     chmod 700 /bin/ShellBot.sh
 fi
 
+# ShellBot utiliza variables internas opcionales y no es compatible con nounset.
+# TeleBotGen conserva errexit, errtrace y pipefail, pero no activa `set -u`.
 # shellcheck source=/bin/ShellBot.sh
 source /bin/ShellBot.sh
 # shellcheck source=/dev/null
