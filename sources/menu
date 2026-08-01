@@ -1,51 +1,74 @@
 #!/usr/bin/env bash
 
 menu_src() {
-    local used generator_status
-    used="$(grep -c "^${chatuser}$" /etc/http-instas 2>/dev/null || true)"
-    [[ "$used" =~ ^[0-9]+$ ]] || used=0
-
-    if systemctl is-active --quiet hexgen-http.service; then
-        generator_status='ONLINE'
-    else
-        generator_status='OFFLINE'
-    fi
-
-    bot_retorno="<b>HEX TUNNEL — PANEL</b>\n"
+    local expires_at remaining status bound_ip api_status
+    bot_retorno="<b>HEX TUNNEL</b>\n"
+    bot_retorno+="Desarrolladores: <a href=\"https://t.me/Gh0stDeveloper\">@Gh0stDeveloper</a> · <a href=\"https://t.me/Jotchua_DevzZ\">@Jotchua_DevzZ</a>\n"
     bot_retorno+="$LINE\n"
-    bot_retorno+="Activaciones usadas: <b>${used}</b>\n"
 
-    if ! grep -Fxq "$chatuser" <<< "$permited"; then
-        if ! grep -Fxq "$chatuser" "$CID" 2>/dev/null; then
+    case "$actor_role" in
+        client)
+            expires_at="$(jq -r '.expires_at // empty' <<< "$actor_license_json")"
+            status="$(jq -r '.status // "desconocido"' <<< "$actor_license_json")"
+            bound_ip="$(jq -r '.bound_ip // "sin activar"' <<< "$actor_license_json")"
+            remaining="$(license_human_duration "$(license_remaining_seconds "$expires_at")")"
+            bot_retorno+="Rol: <b>CLIENTE</b>\n"
+            bot_retorno+="Acceso restante: <b>${remaining}</b>\n"
+            bot_retorno+="Estado: <b>$(html_escape "$status")</b>\n"
+            bot_retorno+="Vence: <code>$(html_escape "$expires_at")</code>\n"
+            bot_retorno+="VPS vinculada: <code>$(html_escape "$bound_ip")</code>\n"
             bot_retorno+="$LINE\n"
-            bot_retorno+="/ID — mostrar tu ID de Telegram\n"
-            bot_retorno+="/menu — abrir este panel\n"
-            bot_retorno+="/ayuda — instrucciones\n"
-            bot_retorno+="$LINE"
-            msj_fun
-        else
+            bot_retorno+="Hex Tunnel debe instalarse en una VPS dedicada amd64/x86_64.\n"
+            ;;
+        reseller)
+            bot_retorno+="Rol: <b>REVENDEDOR</b>\n"
+            bot_retorno+="Puedes generar licencias para clientes mediante:\n"
+            bot_retorno+="<code>/keygen minutos telegram_id usuario</code>\n"
+            bot_retorno+="Máximo por licencia: <b>$(license_human_duration "$((RESELLER_MAX_MINUTES*60))")</b>\n"
             bot_retorno+="$LINE\n"
-            bot_retorno+="/keygen — generar una key de un solo uso\n"
-            bot_retorno+="/install — mostrar el instalador RC\n"
-            bot_retorno+="/ID — mostrar tu ID\n"
-            bot_retorno+="/menu — abrir este panel\n"
-            bot_retorno+="$LINE"
-            menu_print
-        fi
-    else
-        bot_retorno+="Servidor de validación: <b>${generator_status}</b>\n"
-        bot_retorno+="$LINE\n"
-        bot_retorno+="/keygen — generar una key\n"
-        bot_retorno+="/install — comando de instalación\n"
-        bot_retorno+="/power — iniciar o detener validación\n"
-        bot_retorno+="/list — IDs autorizados\n"
-        bot_retorno+="/add — autorizar ID\n"
-        bot_retorno+="/del — revocar ID\n"
-        bot_retorno+="/infosys — estado del VPS\n"
-        bot_retorno+="/cache — limpiar caché RAM\n"
-        bot_retorno+="/update — actualizar el bot\n"
-        bot_retorno+="/reboot — reiniciar el VPS\n"
-        bot_retorno+="$LINE"
-        menu_print
+            bot_retorno+="Usa una VPS separada y dedicada para cada instalación de Hex Tunnel.\n"
+            ;;
+        admin)
+            api_status='OFFLINE'
+            license_api_health >/dev/null 2>&1 && api_status='ONLINE'
+            bot_retorno+="Rol: <b>ADMINISTRADOR</b>\n"
+            bot_retorno+="API de licencias: <b>${api_status}</b>\n"
+            bot_retorno+="Chat actual: <code>$(html_escape "$current_chat_id")</code>\n"
+            bot_retorno+="$LINE\n"
+            bot_retorno+="Administración: /keygen, /licenses, /revoke, /reset, /addreseller, /allowgroup y /api.\n"
+            ;;
+        *)
+            bot_retorno+="Rol: <b>SIN ACCESO</b>\n"
+            bot_retorno+="Tu ID: <code>${actor_id}</code>\n"
+            bot_retorno+="Solicita una licencia o acceso de revendedor a un administrador.\n"
+            bot_retorno+="Información pública: <a href=\"https://ghostdeveloper.duckdns.org/\">ghostdeveloper.duckdns.org</a>\n"
+            ;;
+    esac
+
+    bot_retorno+="$LINE"
+    menu_print
+}
+
+license_status_src() {
+    local license_json expires_at remaining status bound_ip
+    license_json="${actor_license_json:-}"
+    if [[ -z "$license_json" || "$license_json" == null ]]; then
+        license_json="$(license_api_active_for_owner "$actor_id" 2>/dev/null || true)"
     fi
+    if [[ -z "$license_json" || "$license_json" == null ]]; then
+        bot_retorno="$LINE\nNo tienes una licencia activa de Hex Tunnel.\n$LINE"
+        msj_fun
+        return 0
+    fi
+    expires_at="$(jq -r '.expires_at' <<< "$license_json")"
+    remaining="$(license_human_duration "$(license_remaining_seconds "$expires_at")")"
+    status="$(jq -r '.status' <<< "$license_json")"
+    bound_ip="$(jq -r '.bound_ip // "sin activar"' <<< "$license_json")"
+    bot_retorno="<b>MI LICENCIA HEX TUNNEL</b>\n$LINE\n"
+    bot_retorno+="Tiempo restante: <b>${remaining}</b>\n"
+    bot_retorno+="Estado: <b>$(html_escape "$status")</b>\n"
+    bot_retorno+="Vence: <code>$(html_escape "$expires_at")</code>\n"
+    bot_retorno+="IP: <code>$(html_escape "$bound_ip")</code>\n"
+    bot_retorno+="$LINE"
+    msj_fun
 }
