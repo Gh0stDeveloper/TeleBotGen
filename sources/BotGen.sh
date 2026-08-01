@@ -175,11 +175,10 @@ ShellBot.InlineKeyboardButton --button botao_group --line 2 --text 'Mi ID' --cal
 ShellBot.InlineKeyboardButton --button botao_group --line 2 --text 'Ayuda' --callback_data '/help'
 
 while true; do
-    if ! ShellBot.getUpdates --limit 100 --offset "$(ShellBot.OffsetNext)" --timeout 30; then
-        echo 'TeleBotGen: fallo temporal consultando getUpdates; reintentando en 5 segundos.' >&2
-        sleep 5
-        continue
-    fi
+    # ShellBot.getUpdates devuelve 1 después de poblar correctamente sus arrays
+    # cuando no hay archivo de log configurado. El código de retorno no permite
+    # distinguir éxito de error; se procesan siempre las actualizaciones cargadas.
+    ShellBot.getUpdates --limit 100 --offset "$(ShellBot.OffsetNext)" --timeout 30
 
     for id in $(ShellBot.ListUpdates); do
         current_chat_id="${message_chat_id[$id]:-${callback_query_message_chat_id[$id]:-}}"
