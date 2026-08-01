@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Operaciones administrativas de roles, grupos y licencias.
+
+join_command_from() {
+    local start="$1" index output=''
+    for ((index=start; index<${#comando[@]}; index++)); do
+        [[ -z "$output" ]] || output+=' '
+        output+="${comando[$index]}"
+    done
+    printf '%s' "$output"
+}
+
+access_api_status() {
+    local health
+    health="$(license_api_health 2>/dev/null || true)"
+    if [[ -n "$health" ]]; then
+        bot_retorno="<b>GHOST LICENSE API</b>\n$LINE\n"
+        bot_retorno+="Estado: <b>ONLINE</b>\n"
+        bot_retorno+="Versión: <code>$(html_escape "$(jq -r '.version // "desconocida"' <<< "$health")")</code>\n"
+        bot_retorno+="Entorno: <code>$(html_escape "$(jq -r '.environment // "desconocido"' <<< "$health")")</code>\n"
+        bot_retorno+="$LINE"
+    else
+        bot_retorno="$LINE\nAPI de licencias: <b>OFFLINE</b>\n$LINE"
+    fi
+    msj_fun
+}
+
+format_license_lines() {
+    local json="$1" line output='' count=0 remaining expires owner status license_id prefix
+    while IFS=$'\t' read -r license_id prefix owner status expires; do
+        [[ -n "$license_id" ]] || continue
+        remaining="$(license_human_duration "$(license_remaining_seconds "$expires")")"
+        line="<code>$(html_escape "$license_id")</code>\nCliente: <code>$(html_escape "${owner:-sin ID}")</code> · $(html_escape "$status") · ${remaining}\nKey: <code>$(html_escape "$prefix")…</code>\n"
+        output+="$line\n"
+        count=$((count+1))
+        ((count >= 12)) && break
+    done < <(jq -r '.[] | [.id,.key_prefix,(.owner_telegram_id // ""),.status,.expires_at] | @tsv' <<< "$json")
+    [[ -n "$output" ]] && printf '%s' "$output" || printf 'No hay licencias para mostrar.\n'
+}
+
+access_list_licenses() {
+    local data items owner_filter="${comando[1]:-}"
+    data="$(license_api_all 2>/dev/null || true)"
+    [[ -n "$data" ]] || { bot_retorno="$LINE\nNo se pudo consultar la API.\n$LINE"; msj_fun; return 1; }
+    if [[ "$owner_filter" =~ ^[0-9]+$ ]]; then
+        items="$(jq -c --arg owner "$owner_filter" '[.items[] | select(.owner_telegram_id == $owner)]' <<< "$data")"
+    else
+        items="$(jq -c '.items' <<< "$data")"
+    fi
+    bot_retorno="<b>LICENCIAS HEX TUNNEL</b>\n$LINE\n$(format_license_lines "$items")$LINE"
+    msj_fun
+}
+
+access_mykeys() {
+    local data items
+    data="$(license_api_all 2>/dev/null || true)"
+    [[ -n "$data" ]] || { bot_retorno="$LINE\nNo se pudo consultar la API.\n$LINE"; msj_fun; return 1; }
+    items="$(jq -c --arg issuer "$actor_id" '[.items[] | select((.metadata.issued_by_telegram_id // "") == $issuer)]' <<< "$data")"
+    bot_retorno="<b>MIS LICENCIAS EMITIDAS</b>\n$LINE\n$(format_license_lines "$items")$LINE"
+    msj_fun
+}
+
+access_add_reseller() {
+    local target="${comando[1]:-${reply_user_id:-}}"
+    [[ "$target" =~ ^[0-9]+$ ]] || { bot_retorno="$LINE\nUso: <code>/addreseller telegram_id</code> o responde al usuario.\n$LINE"; msj_fun; return; }
+    role_add_value "$RESELLER_FILE" "$target"
+    bot_retorno="$LINE\nRevendedor autorizado: <code>${target}</code>\n$LINE"
+    msj_fun
+    send_html "$target" "Has recibido acceso de <b>REVENDEDOR HEX TUNNEL</b>. Abre /start.\nDesarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ" || true
+}
+
+access_del_reseller() {
+    local target="${comando[1]:-${reply_user_id:-}}"
+    [[ "$target" =~ ^[0-9]+$ ]] || { bot_retorno="$LINE\nUso: <code>/delreseller telegram_id</code>\n$LINE"; msj_fun; return; }
+    role_remove_value "$RESELLER_FILE" "$target"
+    bot_retorno="$LINE\nAcceso de revendedor retirado: <code>${target}</code>\n$LINE"
+    msj_fun
+}
+
+access_list_resellers() {
+    local values
+    values="$(awk 'NF {printf "<code>%s</code>\\n",$0}' "$RESELLER_FILE" 2>/dev/null || true)"
+    bot_retorno="<b>REVENDEDORES</b>\n$LINE\n${values:-No hay revendedores.\n}$LINE"
+    msj_fun
+}
+
+access_allow_group() {
+    local target="${comando[1]:-$current_chat_id}"
+    [[ "$target" =~ ^-[0-9]+$ ]] || { bot_retorno="$LINE\nEjecuta /allowgroup dentro del grupo o indica su ID negativo.\n$LINE"; msj_fun; return; }
+    role_add_value "$GROUP_FILE" "$target"
+    bot_retorno="$LINE\nGrupo autorizado: <code>${target}</code>\nLos administradores y revendedores ya pueden generar licencias aquí.\n$LINE"
+    msj_fun
+}
+
+access_del_group() {
+    local target="${comando[1]:-$current_chat_id}"
+    [[ "$target" =~ ^-[0-9]+$ ]] || { bot_retorno="$LINE\nUso: <code>/delgroup -100...</code>\n$LINE"; msj_fun; return; }
+    role_remove_value "$GROUP_FILE" "$target"
+    bot_retorno="$LINE\nGrupo eliminado: <code>${target}</code>\n$LINE"
+    msj_fun
+}
+
+access_list_groups() {
+    local values
+    values="$(awk 'NF {printf "<code>%s</code>\\n",$0}' "$GROUP_FILE" 2>/dev/null || true)"
+    bot_retorno="<b>GRUPOS PERMITIDOS</b>\n$LINE\n${values:-No hay grupos permitidos.\n}$LINE"
+    msj_fun
+}
+
+access_revoke_license() {
+    local license_id="${comando[1]:-}" reason response
+    reason="$(join_command_from 2)"
+    [[ -n "$reason" ]] || reason='Revocada desde TeleBotGen'
+    response="$(license_api_revoke "$license_id" "$reason" 2>/dev/null || true)"
+    [[ -n "$response" ]] || { bot_retorno="$LINE\nNo se pudo revocar. Uso: <code>/revoke license_id motivo</code>\n$LINE"; msj_fun; return 1; }
+    bot_retorno="$LINE\nLicencia revocada: <code>$(html_escape "$license_id")</code>\n$LINE"
+    msj_fun
+}
+
+access_reset_license() {
+    local license_id="${comando[1]:-}" reason response
+    reason="$(join_command_from 2)"
+    [[ -n "$reason" ]] || reason='Cambio autorizado de VPS desde TeleBotGen'
+    response="$(license_api_reset "$license_id" "$reason" 2>/dev/null || true)"
+    [[ -n "$response" ]] || { bot_retorno="$LINE\nNo se pudo reiniciar. Uso: <code>/reset license_id motivo</code>\n$LINE"; msj_fun; return 1; }
+    bot_retorno="$LINE\nActivación reiniciada: <code>$(html_escape "$license_id")</code>\nLa key puede vincularse a una nueva VPS.\n$LINE"
+    msj_fun
+}
