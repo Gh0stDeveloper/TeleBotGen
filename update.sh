@@ -17,8 +17,8 @@ RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
 notify_admin() {
     local message="$1" token admin_id
     token="$(tr -d '\r\n' < "$STATE_DIR/token" 2>/dev/null || true)"
-    admin_id="$(tr -d '\r\n' < "$STATE_DIR/Admin-ID" 2>/dev/null || true)"
-    [[ -n "$token" && "$token" != null && "$admin_id" =~ ^[0-9]+$ ]] || return 0
+    admin_id="$(head -n1 "$STATE_DIR/Admin-ID" 2>/dev/null || true)"
+    [[ -n "$token" && "$admin_id" =~ ^[0-9]+$ ]] || return 0
     curl -fsS --max-time 10 -X POST \
         "https://api.telegram.org/bot${token}/sendMessage" \
         --data-urlencode "chat_id=$admin_id" \
@@ -32,20 +32,21 @@ notify_admin() {
 
 tmp="$(mktemp /tmp/telebotgen-conf.XXXXXX)"
 trap 'rm -f "${tmp:-}"' EXIT
-notify_admin 'TeleBotGen: iniciando actualización.'
+notify_admin 'TeleBotGen: iniciando actualización mediante GhostDeveloperLicenseServer.'
 
-curl -fsSL --retry 3 --connect-timeout 8 --max-time 60 \
-    "$RAW_BASE/confbot.sh" -o "$tmp"
+curl -fsSL --retry 3 --connect-timeout 8 --max-time 60 "$RAW_BASE/confbot.sh" -o "$tmp"
 sed -i 's/\r$//' "$tmp"
 bash -n "$tmp"
 
+# Elimina únicamente la invocación interactiva final; conserva las funciones.
+sed -i '/^require_root$/,$d' "$tmp"
 # shellcheck source=/dev/null
 source "$tmp"
+
 if install_bot_files; then
-    systemctl restart hexgen-http.service
     systemctl restart telebotgen.service
     notify_admin "TeleBotGen actualizado desde ${REPOSITORY}@${REF}."
 else
-    notify_admin 'TeleBotGen: la actualización falló; revisa journalctl.'
+    notify_admin 'TeleBotGen: la actualización falló; revisa journalctl -u telebotgen.'
     exit 1
 fi
