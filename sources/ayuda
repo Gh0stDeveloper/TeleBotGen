@@ -1,38 +1,39 @@
 #!/usr/bin/env bash
 
 ayuda_src() {
-    local is_admin=0 is_allowed=0
-    grep -Fxq "$chatuser" <<< "$permited" && is_admin=1
-    grep -Fxq "$chatuser" "$CID" 2>/dev/null && is_allowed=1
+    bot_retorno="<b>HEX TUNNEL — COMANDOS</b>\n$LINE\n"
+    bot_retorno+="Comunes:\n"
+    bot_retorno+="/start — mostrar tu acceso y tiempo restante\n"
+    bot_retorno+="/id — mostrar ID de usuario y chat\n"
+    bot_retorno+="/license — estado de licencia\n"
+    bot_retorno+="/install — instalador público firmado\n"
+    bot_retorno+="/upgrade — actualizador privado\n"
 
-    bot_retorno="<b>HEX TUNNEL — AYUDA</b>\n"
+    case "$actor_role" in
+        reseller)
+            bot_retorno+="$LINE\nRevendedor:\n"
+            bot_retorno+="/keygen [minutos] [telegram_id] [usuario]\n"
+            bot_retorno+="/mykeys — licencias emitidas por ti\n"
+            bot_retorno+="También puedes responder al mensaje de un cliente y ejecutar /keygen minutos.\n"
+            ;;
+        admin)
+            bot_retorno+="$LINE\nAdministrador:\n"
+            bot_retorno+="/keygen [minutos] [telegram_id] [usuario]\n"
+            bot_retorno+="/licenses [telegram_id] — listar licencias\n"
+            bot_retorno+="/revoke license_id [motivo]\n"
+            bot_retorno+="/reset license_id [motivo]\n"
+            bot_retorno+="/addreseller telegram_id · /delreseller telegram_id\n"
+            bot_retorno+="/resellers — listar revendedores\n"
+            bot_retorno+="/allowgroup [chat_id] · /delgroup [chat_id]\n"
+            bot_retorno+="/groups — listar grupos autorizados\n"
+            bot_retorno+="/api — comprobar la API\n"
+            bot_retorno+="/infosys — estado de la VPS\n"
+            bot_retorno+="/update — actualizar TeleBotGen\n"
+            ;;
+    esac
+
     bot_retorno+="$LINE\n"
-    bot_retorno+="/ID — muestra tu ID de Telegram.\n"
-    bot_retorno+="/menu — abre el panel disponible para tu cuenta.\n"
-    bot_retorno+="/ayuda — muestra estas instrucciones.\n"
-
-    if ((is_admin == 1 || is_allowed == 1)); then
-        bot_retorno+="$LINE\n"
-        bot_retorno+="/keygen — genera una key criptográfica de un solo uso.\n"
-        bot_retorno+="/install — muestra el comando del instalador Hex Tunnel RC.\n"
-        bot_retorno+="La key se solicita antes del selector de módulos, caduca en cuatro horas y se consume al activarse.\n"
-    else
-        bot_retorno+="$LINE\n"
-        bot_retorno+="Envía tu ID al administrador del bot para solicitar acceso a /keygen.\n"
-    fi
-
-    if ((is_admin == 1)); then
-        bot_retorno+="$LINE\n"
-        bot_retorno+="/add — autoriza un ID. También puede responderse al mensaje forzado.\n"
-        bot_retorno+="/del — revoca un ID autorizado.\n"
-        bot_retorno+="/list — muestra y exporta la lista de IDs.\n"
-        bot_retorno+="/power — inicia o detiene el servidor de validación.\n"
-        bot_retorno+="/infosys — muestra el estado del VPS.\n"
-        bot_retorno+="/cache — libera caché de páginas del sistema.\n"
-        bot_retorno+="/update — actualiza TeleBotGen desde el repositorio configurado.\n"
-        bot_retorno+="/reboot — reinicia el VPS.\n"
-    fi
-
-    bot_retorno+="$LINE"
+    bot_retorno+="Hex Tunnel debe instalarse en una VPS dedicada amd64/x86_64, separada de la VPS del bot y la API.\n"
+    bot_retorno+="Desarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ\n$LINE"
     msj_fun
 }
