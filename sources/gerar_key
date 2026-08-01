@@ -1,52 +1,56 @@
 #!/usr/bin/env bash
-# Generación de licencias mediante GhostDeveloperLicenseServer.
+# Generación autoservicio de licencias mediante GhostDeveloperLicenseServer.
 
-resolve_key_target() {
-    local requested="${comando[2]:-}" target
-    if [[ "$requested" =~ ^[0-9]+$ ]]; then
-        target="$requested"
-    elif [[ "${reply_user_id:-}" =~ ^[0-9]+$ ]]; then
-        target="$reply_user_id"
-    else
-        target="$actor_id"
-    fi
-    printf '%s' "$target"
-}
-
-resolve_key_username() {
-    local requested="${comando[3]:-}" value
-    if [[ -n "$requested" ]]; then
-        value="$requested"
-    elif [[ -n "${reply_username:-}" ]]; then
-        value="$reply_username"
-    else
-        value="${actor_username:-}"
-    fi
+self_service_username() {
+    local value="${actor_username:-}"
     value="${value#@}"
     value="$(tr -cd 'A-Za-z0-9_.-' <<< "$value")"
     printf '%s' "${value:0:64}"
 }
 
 gerar_key() {
-    local minutes="${comando[1]:-240}" owner_id username response key expires_at license_id
+    local minutes owner_id username issuer_role response key expires_at license_id
+    local active_license active_expires active_remaining
     local install_command upgrade_command delivery_text confirmation
 
-    if ! role_can_generate "$actor_role"; then
-        bot_retorno="$LINE\nTu rol no permite generar licencias.\n$LINE"
-        msj_fun
-        return 0
-    fi
-    if ! role_validate_duration "$actor_role" "$minutes"; then
-        bot_retorno="$LINE\nDuración inválida. Usa minutos enteros. Límite de revendedor: ${RESELLER_MAX_MINUTES} minutos.\n$LINE"
+    if ! keygen_context_allowed "$current_chat_type" "$current_chat_id"; then
+        bot_retorno="$LINE\nEste chat no está autorizado para generar keys.\n$LINE"
         msj_fun
         return 0
     fi
 
-    owner_id="$(resolve_key_target)"
-    username="$(resolve_key_username)"
-    response="$(license_api_create "$minutes" "$owner_id" "$username" "$actor_id" "$actor_role" "$current_chat_id" 2>/dev/null || true)"
+    if ((${#comando[@]} > 1)); then
+        bot_retorno="$LINE\nUsa solamente <code>/Keygen</code>. El ID y la duración se asignan automáticamente.\n$LINE"
+        msj_fun
+        return 0
+    fi
+
+    owner_id="$actor_id"
+    username="$(self_service_username)"
+    minutes="$(key_duration_get)"
+    active_license="$(license_api_active_for_owner "$owner_id" 2>/dev/null || true)"
+
+    if [[ -n "$active_license" && "$active_license" != null ]]; then
+        active_expires="$(jq -r '.expires_at // empty' <<< "$active_license")"
+        active_remaining="$(license_human_duration "$(license_remaining_seconds "$active_expires")")"
+        if [[ "$current_chat_type" == group ]]; then
+            send_html "$current_chat_id" "Ya tienes una licencia activa de Hex Tunnel. Tiempo restante: <b>${active_remaining}</b>. Consulta sus detalles por privado con /license."
+        else
+            bot_retorno="<b>LICENCIA YA EXISTENTE</b>\n$LINE\n"
+            bot_retorno+="Ya tienes una licencia activa.\n"
+            bot_retorno+="Tiempo restante: <b>${active_remaining}</b>\n"
+            bot_retorno+="Vence: <code>$(html_escape "$active_expires")</code>\n"
+            bot_retorno+="Usa /license para consultar su estado.\n$LINE"
+            msj_fun
+        fi
+        return 0
+    fi
+
+    issuer_role='private-self-service'
+    [[ "$current_chat_type" == group ]] && issuer_role='allowed-group-member'
+    response="$(license_api_create "$minutes" "$owner_id" "$username" "$owner_id" "$issuer_role" "$current_chat_id" 2>/dev/null || true)"
     if [[ -z "$response" ]] || ! jq empty <<< "$response" >/dev/null 2>&1; then
-        bot_retorno="$LINE\nLa API no pudo crear la licencia. Revisa /api y los logs del servidor.\n$LINE"
+        bot_retorno="$LINE\nLa API no pudo crear tu licencia. Comunícate con un administrador.\n$LINE"
         msj_fun
         return 1
     fi
@@ -62,11 +66,10 @@ gerar_key() {
 
     install_command="$(html_escape "$(hextunnel_install_command)")"
     upgrade_command="$(html_escape "$(hextunnel_upgrade_command)")"
-    delivery_text="<b>HEX TUNNEL — LICENCIA CREADA</b>\n$LINE\n"
-    delivery_text+="Cliente: <code>${owner_id}</code>\n"
-    delivery_text+="Duración: <b>$(license_human_duration "$((minutes*60))")</b>\n"
+    delivery_text="<b>HEX TUNNEL — TU LICENCIA</b>\n$LINE\n"
+    delivery_text+="Telegram ID: <code>${owner_id}</code>\n"
+    delivery_text+="Duración configurada: <b>$(license_human_duration "$((minutes*60))")</b>\n"
     delivery_text+="Vence: <code>$(html_escape "$expires_at")</code>\n"
-    delivery_text+="ID interno: <code>$(html_escape "$license_id")</code>\n"
     delivery_text+="$LINE\n"
     delivery_text+="Key:\n<code>$(html_escape "$key")</code>\n"
     delivery_text+="$LINE\n"
@@ -80,11 +83,11 @@ gerar_key() {
     delivery_text+="$LINE"
 
     if [[ "$current_chat_type" == group ]]; then
-        if send_html "$actor_id" "$delivery_text"; then
-            confirmation="<b>Licencia generada.</b> Los datos privados fueron enviados al administrador/revendedor que ejecutó el comando. Cliente: <code>${owner_id}</code>."
+        if send_html "$owner_id" "$delivery_text"; then
+            confirmation="<b>Key generada.</b> Los datos privados fueron enviados al usuario que ejecutó /Keygen."
         else
-            license_api_revoke "$license_id" "Entrega privada fallida; el emisor debe abrir el bot antes de generar desde un grupo" >/dev/null 2>&1 || true
-            confirmation="<b>No se entregó la licencia.</b> Telegram no permitió enviar el mensaje privado y la licencia fue revocada automáticamente. Abre el bot en privado, ejecuta /start y vuelve a generar la key."
+            license_api_revoke "$license_id" "Entrega privada fallida; el usuario debe abrir el bot antes de generar desde un grupo" >/dev/null 2>&1 || true
+            confirmation="<b>No se entregó la key.</b> Telegram no permitió enviarte un mensaje privado y la licencia fue revocada automáticamente. Abre el bot en privado, ejecuta /start y vuelve a usar /Keygen en el grupo."
         fi
         send_html "$current_chat_id" "$confirmation"
     else
