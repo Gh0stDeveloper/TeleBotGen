@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          files=(confbot.sh update.sh tests/test-role-license-flow.sh)
+          files=(confbot.sh update.sh tests/test-role-license-flow.sh tests/test-shellbot-runtime.sh)
           while IFS= read -r item; do
             [[ -n "$item" ]] || continue
             files+=("sources/$item")
@@ -39,14 +39,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          grep -Fq 'set +e' sources/BotGen.sh
-          grep -Fq 'set +u' sources/BotGen.sh
-          ! grep -Eq '^set -[^[:space:]]*[eu]' sources/BotGen.sh
-          ! grep -Eq 'ShellBot\.init.*--monitor' sources/BotGen.sh
-          ! grep -Eq '^[[:space:]]*ShellBot\.username[[:space:]]*$' sources/BotGen.sh
-          grep -Fq 'telegram_url' sources/BotGen.sh
-          grep -Fq 'command curl --config' sources/BotGen.sh
-          grep -Fq 'if ! ShellBot.getUpdates' sources/BotGen.sh
+          bash tests/test-shellbot-runtime.sh
           env -u _SHELLBOT_SH_ bash -c '
             set +e
             set +u
@@ -59,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          files=(confbot.sh update.sh tests/test-role-license-flow.sh)
+          files=(confbot.sh update.sh tests/test-role-license-flow.sh tests/test-shellbot-runtime.sh)
           while IFS= read -r item; do
             [[ -n "$item" ]] || continue
             files+=("sources/$item")
