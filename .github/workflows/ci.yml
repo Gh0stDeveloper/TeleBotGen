@@ -1,43 +1,71 @@
 name: TeleBotGen CI
+
 on:
   push:
     branches: ['feat/**', 'fix/**', 'main']
   pull_request:
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - name: Install validation tools
-        run: sudo apt-get update -y && sudo apt-get install -y shellcheck openssl
-      - name: Validate Bash syntax
+        run: sudo apt-get update -y && sudo apt-get install -y shellcheck jq openssl
+
+      - name: Validate active Bash files
         shell: bash
         run: |
           set -Eeuo pipefail
-          while IFS= read -r -d '' file; do
-            bash -n "$file"
-          done < <(find . -type f -name '*.sh' -print0)
-          while IFS= read -r item; do
-            [[ -n "$item" ]] || continue
-            bash -n "sources/$item"
-          done < sources/lista-bot
-      - name: Run ShellCheck errors
-        shell: bash
-        run: |
-          set -o pipefail
-          files=(confbot.sh http-server.sh update.sh)
+          files=(confbot.sh update.sh tests/test-role-license-flow.sh)
           while IFS= read -r item; do
             [[ -n "$item" ]] || continue
             files+=("sources/$item")
           done < sources/lista-bot
-          files+=(tests/test-key-flow.sh)
+          for file in "${files[@]}"; do
+            bash -n "$file"
+          done
+
+      - name: Run ShellCheck errors
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          files=(confbot.sh update.sh tests/test-role-license-flow.sh)
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            files+=("sources/$item")
+          done < sources/lista-bot
           shellcheck --severity=error -x --format=gcc "${files[@]}" 2>&1 | tee shellcheck.log
+
+      - name: Test role and license flow
+        run: bash tests/test-role-license-flow.sh
+
+      - name: Enforce production license architecture
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          active_sources=()
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            active_sources+=("sources/$item")
+          done < sources/lista-bot
+          ! grep -REn 'HexGen/|HEXGEN_PORT|KEY_ROOT=.*/http-shell|localhost:8888|:8888/' "${active_sources[@]}"
+          ! grep -En 'ExecStart=.*hexgen-http|enable .*hexgen-http|restart .*hexgen-http' confbot.sh update.sh
+          grep -Fq 'http://127.0.0.1:8080' sources/license_api
+          grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' sources/license_api
+          grep -Fq 'Allowed-Groups' sources/roles
+          grep -Fq '@Gh0stDeveloper' sources/menu
+          grep -Fq '@Jotchua_DevzZ' sources/menu
+
       - name: Upload ShellCheck diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -46,12 +74,3 @@ jobs:
           path: shellcheck.log
           if-no-files-found: error
           retention-days: 7
-      - name: Test one-time key lifecycle
-        run: bash tests/test-key-flow.sh
-      - name: Reject obsolete installation endpoints
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          ! grep -RIE --exclude-dir=.git --exclude='README.md' \
-            'JotchuaDevz/(TeleBotGen|Porno-OS)|apt([ -]+get)? upgrade|refs/heads/main/install\.sh' \
-            confbot.sh http-server.sh update.sh sources
