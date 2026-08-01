@@ -80,8 +80,12 @@ gerar_key() {
     delivery_text+="$LINE"
 
     if [[ "$current_chat_type" == group ]]; then
-        send_to_actor "$delivery_text"
-        confirmation="<b>Licencia generada.</b> Los datos privados fueron enviados al administrador/revendedor que ejecutó el comando. Cliente: <code>${owner_id}</code>."
+        if send_html "$actor_id" "$delivery_text"; then
+            confirmation="<b>Licencia generada.</b> Los datos privados fueron enviados al administrador/revendedor que ejecutó el comando. Cliente: <code>${owner_id}</code>."
+        else
+            license_api_revoke "$license_id" "Entrega privada fallida; el emisor debe abrir el bot antes de generar desde un grupo" >/dev/null 2>&1 || true
+            confirmation="<b>No se entregó la licencia.</b> Telegram no permitió enviar el mensaje privado y la licencia fue revocada automáticamente. Abre el bot en privado, ejecuta /start y vuelve a generar la key."
+        fi
         send_html "$current_chat_id" "$confirmation"
     else
         bot_retorno="$delivery_text"
