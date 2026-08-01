@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # TeleBotGen: administración por roles para Hex Tunnel.
-set -Eeo pipefail
+# ShellBot 6.x utiliza estados distintos de cero como control interno y no es
+# compatible con errexit/nounset. Los errores críticos se validan explícitamente.
+set +e
+set +u
+set -o pipefail
 umask 077
 
 CIDdir="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
@@ -19,8 +23,8 @@ LINE='============================'
 
 install -d -m 700 "$CIDdir" "$SRC"
 
-for command in curl jq openssl; do
-    command -v "$command" >/dev/null 2>&1 || {
+for required_command in curl jq openssl; do
+    command -v "$required_command" >/dev/null 2>&1 || {
         apt-get update -qq
         apt-get install -y --no-install-recommends curl jq openssl ca-certificates
         break
@@ -28,12 +32,11 @@ for command in curl jq openssl; do
 done
 
 if [[ ! -s /bin/ShellBot.sh ]]; then
-    curl -fsSL --retry 2 "$RAW_BASE/ShellBot.sh" -o /bin/ShellBot.sh
+    command curl -fsSL --retry 2 "$RAW_BASE/ShellBot.sh" -o /bin/ShellBot.sh
     chmod 700 /bin/ShellBot.sh
 fi
 
-# ShellBot utiliza variables internas opcionales y no es compatible con nounset.
-# TeleBotGen conserva errexit, errtrace y pipefail, pero no activa `set -u`.
+# ShellBot utiliza variables internas opcionales y estados no cero de control.
 # shellcheck source=/bin/ShellBot.sh
 source /bin/ShellBot.sh
 # shellcheck source=/dev/null
@@ -48,6 +51,36 @@ source "$SRC/access"
 source "$SRC/status"
 source "$SRC/update"
 source "$SRC/comandos"
+
+# Evita que el token incluido en la URL de Telegram aparezca en argv, ps,
+# systemctl status o el CGroup. La URL se entrega a curl mediante un archivo
+# temporal privado dentro del directorio de estado (modo 700).
+curl() {
+    local argument telegram_url='' config_file='' rc
+    local -a sanitized_arguments=()
+
+    for argument in "$@"; do
+        if [[ "$argument" == https://api.telegram.org/bot* ]]; then
+            telegram_url="$argument"
+        else
+            sanitized_arguments+=("$argument")
+        fi
+    done
+
+    if [[ -z "$telegram_url" ]]; then
+        command curl "${sanitized_arguments[@]}"
+        return $?
+    fi
+
+    config_file="$(mktemp "$CIDdir/.telegram-curl.XXXXXX")" || return 1
+    chmod 600 "$config_file"
+    printf 'url = "%s"\n' "$telegram_url" > "$config_file"
+
+    command curl --config "$config_file" "${sanitized_arguments[@]}"
+    rc=$?
+    rm -f "$config_file"
+    return "$rc"
+}
 
 roles_prepare_files
 bot_token="$(tr -d '\r\n' < "$CIDdir/token" 2>/dev/null || true)"
@@ -64,8 +97,13 @@ license_api_token >/dev/null || {
     exit 1
 }
 
-ShellBot.init --token "$bot_token" --monitor --flush --return map
-ShellBot.username
+# No usar --monitor: imprime datos internos sensibles. No usar --flush:
+# ShellBot puede devolver estados de control incompatibles con systemd.
+if ! ShellBot.init --token "$bot_token" --return map; then
+    echo 'TeleBotGen: ShellBot no pudo inicializar el bot de Telegram.' >&2
+    exit 1
+fi
+unset bot_token
 
 send_html() {
     local chat_id="$1" text="$2" markup="${3:-}"
@@ -135,7 +173,12 @@ ShellBot.InlineKeyboardButton --button botao_group --line 2 --text 'Mi ID' --cal
 ShellBot.InlineKeyboardButton --button botao_group --line 2 --text 'Ayuda' --callback_data '/help'
 
 while true; do
-    ShellBot.getUpdates --limit 100 --offset "$(ShellBot.OffsetNext)" --timeout 30
+    if ! ShellBot.getUpdates --limit 100 --offset "$(ShellBot.OffsetNext)" --timeout 30; then
+        echo 'TeleBotGen: fallo temporal consultando getUpdates; reintentando en 5 segundos.' >&2
+        sleep 5
+        continue
+    fi
+
     for id in $(ShellBot.ListUpdates); do
         current_chat_id="${message_chat_id[$id]:-${callback_query_message_chat_id[$id]:-}}"
         actor_id="${message_from_id[$id]:-${callback_query_from_id[$id]:-}}"
