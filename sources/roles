@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Roles y control de grupos permitidos.
+
+ADMIN_FILE="${TELEBOTGEN_ADMIN_FILE:-/etc/ADM-db/Admin-ID}"
+RESELLER_FILE="${TELEBOTGEN_RESELLER_FILE:-/etc/ADM-db/Reseller-ID}"
+GROUP_FILE="${TELEBOTGEN_GROUP_FILE:-/etc/ADM-db/Allowed-Groups}"
+RESELLER_MAX_MINUTES="${TELEBOTGEN_RESELLER_MAX_MINUTES:-43200}"
+
+roles_prepare_files() {
+    install -d -m 700 /etc/ADM-db
+    for file in "$ADMIN_FILE" "$RESELLER_FILE" "$GROUP_FILE"; do
+        [[ -e "$file" ]] || : > "$file"
+        chmod 600 "$file"
+    done
+}
+
+role_file_contains() {
+    local file="$1" value="$2"
+    [[ -n "$value" && -r "$file" ]] && grep -Fxq -- "$value" "$file"
+}
+
+role_is_admin() { role_file_contains "$ADMIN_FILE" "$1"; }
+role_is_reseller() { role_file_contains "$RESELLER_FILE" "$1"; }
+
+group_is_chat() { [[ "${1:-}" == -* ]]; }
+group_is_allowed() { role_file_contains "$GROUP_FILE" "$1"; }
+
+actor_resolve_role() {
+    local actor="$1"
+    actor_license_json=''
+    if role_is_admin "$actor"; then
+        actor_role='admin'
+    elif role_is_reseller "$actor"; then
+        actor_role='reseller'
+    else
+        actor_license_json="$(license_api_active_for_owner "$actor" 2>/dev/null || true)"
+        if [[ -n "$actor_license_json" && "$actor_license_json" != null ]]; then
+            actor_role='client'
+        else
+            actor_role='public'
+        fi
+    fi
+    export actor_role actor_license_json
+}
+
+role_add_value() {
+    local file="$1" value="$2"
+    [[ -n "$value" ]] || return 2
+    role_file_contains "$file" "$value" || printf '%s\n' "$value" >> "$file"
+    sort -u -o "$file" "$file"
+    chmod 600 "$file"
+}
+
+role_remove_value() {
+    local file="$1" value="$2" tmp
+    [[ -n "$value" && -e "$file" ]] || return 2
+    tmp="$(mktemp)"
+    grep -Fvx -- "$value" "$file" > "$tmp" || true
+    install -m 600 "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+role_can_generate() {
+    [[ "${1:-}" == admin || "${1:-}" == reseller ]]
+}
+
+role_validate_duration() {
+    local role="$1" minutes="$2"
+    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -ge 1 && "$minutes" -le 525600 ]] || return 1
+    if [[ "$role" == reseller && "$minutes" -gt "$RESELLER_MAX_MINUTES" ]]; then
+        return 1
+    fi
+}
