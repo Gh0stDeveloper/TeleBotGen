@@ -1,47 +1,23 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-infosys_src () {
+infosys_src() {
+    local os_name kernel uptime_text memory disk api bot_state
+    os_name="$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-desconocido}")"
+    kernel="$(uname -r)"
+    uptime_text="$(uptime -p 2>/dev/null || true)"
+    memory="$(free -h | awk '/^Mem:/ {print $3 "/" $2}')"
+    disk="$(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+    api='OFFLINE'; license_api_health >/dev/null 2>&1 && api='ONLINE'
+    bot_state="$(systemctl is-active telebotgen.service 2>/dev/null || true)"
 
-#HORA Y FECHA
-unset _hora
-unset _fecha
-_hora=$(printf '%(%H:%M:%S)T') 
-_fecha=$(printf '%(%D)T') 
-
-#PROCESSADOR
-unset _core
-unset _usop
-_core=$(printf '%-1s' "$(grep -c cpu[0-9] /proc/stat)")
-_usop=$(printf '%-1s' "$(top -bn1 | awk '/Cpu/ { cpu = "" 100 - $8 "%" }; END { print cpu }')")
-
-#MEMORIA RAM
-unset ram1
-unset ram2
-unset ram3
-ram1=$(free -h | grep -i mem | awk {'print $2'})
-ram2=$(free -h | grep -i mem | awk {'print $4'})
-ram3=$(free -h | grep -i mem | awk {'print $3'})
-
-unset _ram
-unset _usor
-_ram=$(printf ' %-9s' "$(free -h | grep -i mem | awk {'print $2'})")
-_usor=$(printf '%-8s' "$(free -m | awk 'NR==2{printf "%.2f%%", $3*100/$2 }')")
-
-unset os_sys
-os_sys=$(echo $(cat -n /etc/issue |grep 1 |cut -d' ' -f6,7,8 |sed 's/1//' |sed 's/      //')) && echo $system|awk '{print $1, $2}'
-
-bot_retorno="🖥️ <b>INFO DEL SISTEMA</b> 🖥️\n"
-	  bot_retorno+="$LINE\n"
-          bot_retorno+="🐧 S.O: <b>$os_sys</b>\n"
-	  bot_retorno+="🌐 IP: <b>$(meu_ip)</b>\n"
-	  bot_retorno+="$LINE\n"
-	  bot_retorno+="💾 Ram: <b>$ram1</b> | En uso: <b>$_usor</b>\n"
-	  bot_retorno+="📈 Usada: <b>$ram3</b> | 📉 Libre: <b>$ram2</b>\n"
-	  bot_retorno+="$LINE\n"
-	  bot_retorno+="⚡ CPU: <b>$_core</b> nucleos | En uso: <b>$_usop</b>\n"
-	  bot_retorno+="$LINE\n"
-	  bot_retorno+="📅 Fecha: <b>$_fecha</b>\n"
-	  bot_retorno+="🕐 Hora: <b>$_hora</b>\n"
-          bot_retorno+="$LINE\n"
-msj_fun
+    bot_retorno="<b>ESTADO DE LA VPS</b>\n$LINE\n"
+    bot_retorno+="Sistema: <code>$(html_escape "$os_name")</code>\n"
+    bot_retorno+="Kernel: <code>$(html_escape "$kernel")</code>\n"
+    bot_retorno+="Uptime: <code>$(html_escape "$uptime_text")</code>\n"
+    bot_retorno+="RAM: <code>$(html_escape "$memory")</code>\n"
+    bot_retorno+="Disco: <code>$(html_escape "$disk")</code>\n"
+    bot_retorno+="TeleBotGen: <b>$(html_escape "$bot_state")</b>\n"
+    bot_retorno+="License API: <b>${api}</b>\n"
+    bot_retorno+="$LINE"
+    msj_fun
 }
