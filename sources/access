@@ -25,6 +25,35 @@ access_api_status() {
     msj_fun
 }
 
+access_show_key_duration() {
+    local minutes
+    minutes="$(key_duration_get)"
+    bot_retorno="<b>DURACIÓN GLOBAL DE KEYS</b>\n$LINE\n"
+    bot_retorno+="Minutos: <code>${minutes}</code>\n"
+    bot_retorno+="Equivalencia: <b>$(license_human_duration "$((minutes*60))")</b>\n"
+    bot_retorno+="Todos los usuarios reciben esta duración al ejecutar /Keygen.\n"
+    bot_retorno+="Para cambiarla: <code>/Setkeytime minutos</code>\n$LINE"
+    msj_fun
+}
+
+access_set_key_duration() {
+    local minutes="${comando[1]:-}"
+    if ((${#comando[@]} != 2)) || ! valid_key_duration "$minutes"; then
+        bot_retorno="$LINE\nUso: <code>/Setkeytime minutos</code>\nRango permitido: 1 a 525600 minutos.\n$LINE"
+        msj_fun
+        return 0
+    fi
+    key_duration_set "$minutes" || {
+        bot_retorno="$LINE\nNo se pudo guardar la duración global.\n$LINE"
+        msj_fun
+        return 1
+    }
+    bot_retorno="<b>DURACIÓN ACTUALIZADA</b>\n$LINE\n"
+    bot_retorno+="Todas las nuevas keys durarán: <b>$(license_human_duration "$((minutes*60))")</b>\n"
+    bot_retorno+="Valor guardado: <code>${minutes} minutos</code>\n$LINE"
+    msj_fun
+}
+
 format_license_lines() {
     local json="$1" line output='' count=0 remaining expires owner status license_id prefix
     while IFS=$'\t' read -r license_id prefix owner status expires; do
@@ -88,7 +117,7 @@ access_allow_group() {
     local target="${comando[1]:-$current_chat_id}"
     [[ "$target" =~ ^-[0-9]+$ ]] || { bot_retorno="$LINE\nEjecuta /allowgroup dentro del grupo o indica su ID negativo.\n$LINE"; msj_fun; return; }
     role_add_value "$GROUP_FILE" "$target"
-    bot_retorno="$LINE\nGrupo autorizado: <code>${target}</code>\nLos administradores y revendedores ya pueden generar licencias aquí.\n$LINE"
+    bot_retorno="$LINE\nGrupo autorizado: <code>${target}</code>\nTodos los miembros pueden generar su propia key usando solamente /Keygen.\nLa duración será la configurada globalmente por el administrador.\n$LINE"
     msj_fun
 }
 
