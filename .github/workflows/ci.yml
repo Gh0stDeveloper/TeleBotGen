@@ -39,9 +39,18 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          ! grep -Eq '^set -[^[:space:]]*u' sources/BotGen.sh
+          grep -Fq 'set +e' sources/BotGen.sh
+          grep -Fq 'set +u' sources/BotGen.sh
+          ! grep -Eq '^set -[^[:space:]]*[eu]' sources/BotGen.sh
+          ! grep -Eq 'ShellBot\.init.*--monitor' sources/BotGen.sh
+          ! grep -Eq '^[[:space:]]*ShellBot\.username[[:space:]]*$' sources/BotGen.sh
+          grep -Fq 'telegram_url' sources/BotGen.sh
+          grep -Fq 'command curl --config' sources/BotGen.sh
+          grep -Fq 'if ! ShellBot.getUpdates' sources/BotGen.sh
           env -u _SHELLBOT_SH_ bash -c '
-            set -Eeo pipefail
+            set +e
+            set +u
+            set -o pipefail
             source ./ShellBot.sh
             declare -F ShellBot.init >/dev/null
           '
