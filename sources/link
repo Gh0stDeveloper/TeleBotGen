@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 
 link_src() {
-    local repository="${HEXTUNNEL_REPOSITORY:-Gh0stDeveloper/Porno-OS}"
-    local ref="${HEXTUNNEL_REF:-3f2003e5934c898908eabd187fc080f0f24e7c82}"
-    local command bot_retorno
-
-    command="sudo apt-get update -y && sudo apt-get install -y --no-install-recommends git ca-certificates curl && sudo rm -rf /opt/hextunnel-installer && sudo git init /opt/hextunnel-installer && sudo git -C /opt/hextunnel-installer remote add origin https://github.com/${repository}.git && sudo git -C /opt/hextunnel-installer fetch --depth 1 origin ${ref} && sudo git -C /opt/hextunnel-installer checkout --detach FETCH_HEAD && sudo bash /opt/hextunnel-installer/bin/hextunnel-bot-install"
-
-    bot_retorno="$LINE\n"
-    bot_retorno+="<b>INSTALADOR HEX TUNNEL RC</b>\n"
+    local install_command
+    install_command="$(html_escape "$(hextunnel_install_command)")"
+    bot_retorno="<b>INSTALADOR OFICIAL HEX TUNNEL</b>\n$LINE\n"
+    bot_retorno+="<code>${install_command}</code>\n"
     bot_retorno+="$LINE\n"
-    bot_retorno+="Primero genera una key con /keygen. Después ejecuta:\n"
-    bot_retorno+="<code>${command}</code>\n"
+    bot_retorno+="El comando instala curl y certificados cuando no están disponibles, solicita la key, verifica la firma RSA y descarga el paquete privado.\n"
+    bot_retorno+="<b>Requisito:</b> VPS dedicada Debian 12 o Ubuntu 22.04/24.04, arquitectura amd64/x86_64.\n"
+    bot_retorno+="No lo instales en la VPS del bot, API, web o servicios importantes.\n"
+    bot_retorno+="Información: <a href=\"https://ghostdeveloper.duckdns.org/\">ghostdeveloper.duckdns.org</a>\n"
+    bot_retorno+="Desarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ\n$LINE"
+    msj_fun
+}
+
+upgrade_src() {
+    bot_retorno="<b>ACTUALIZACIÓN PRIVADA</b>\n$LINE\n"
+    bot_retorno+="Después de instalar Hex Tunnel ejecuta:\n"
+    bot_retorno+="<code>sudo hextunnel-upgrade</code>\n"
+    bot_retorno+="Estado de licencia:\n<code>sudo hextunnel-license status</code>\n"
     bot_retorno+="$LINE\n"
-    bot_retorno+="El instalador pedirá la key antes de mostrar el menú de módulos.\n"
-    bot_retorno+="Debian 12, Ubuntu 22.04/24.04, amd64.\n"
-    bot_retorno+="$LINE"
+    bot_retorno+="La actualización vuelve a validar la licencia, descarga la release activa y conserva los servicios de red instalados.\n$LINE"
     msj_fun
 }
