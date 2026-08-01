@@ -97,13 +97,15 @@ license_api_token >/dev/null || {
     exit 1
 }
 
-# No usar --monitor: imprime datos internos sensibles. No usar --flush:
-# ShellBot puede devolver estados de control incompatibles con systemd.
-if ! ShellBot.init --token "$bot_token" --return map; then
-    echo 'TeleBotGen: ShellBot no pudo inicializar el bot de Telegram.' >&2
+# ShellBot.init puede devolver 1 aun cuando inicializa correctamente. Por eso
+# se comprueba el estado interno y la existencia de las funciones cargadas.
+ShellBot.init --token "$bot_token" --return map
+shellbot_init_rc=$?
+if [[ "${_SHELLBOT_INIT_:-}" != 1 ]] || ! declare -F ShellBot.getUpdates >/dev/null; then
+    echo "TeleBotGen: ShellBot no pudo inicializar el bot de Telegram (código $shellbot_init_rc)." >&2
     exit 1
 fi
-unset bot_token
+unset shellbot_init_rc bot_token
 
 send_html() {
     local chat_id="$1" text="$2" markup="${3:-}"
