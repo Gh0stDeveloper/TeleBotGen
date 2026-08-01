@@ -11,12 +11,33 @@ RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
 BAR='============================================================'
 LICENSE_API='http://127.0.0.1:8080/health'
 LICENSE_TOKEN_FILE='/etc/ghostdeveloper-license/secrets/admin-token'
+KEY_DURATION_FILE="$CIDdir/Key-Duration-Minutes"
 
 require_root() {
     [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo 'ERROR: ejecuta como root.' >&2; exit 1; }
 }
 
 pause_menu() { read -r -p 'Presiona Enter para continuar...' _; }
+
+valid_key_duration() {
+    local minutes="${1:-}"
+    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -ge 1 && "$minutes" -le 525600 ]]
+}
+
+human_duration() {
+    local minutes="$1" total_seconds days hours remaining_minutes
+    total_seconds=$((minutes*60))
+    days=$((total_seconds/86400))
+    hours=$(((total_seconds%86400)/3600))
+    remaining_minutes=$(((total_seconds%3600)/60))
+    if ((days > 0)); then
+        printf '%d día(s), %d hora(s) y %d minuto(s)' "$days" "$hours" "$remaining_minutes"
+    elif ((hours > 0)); then
+        printf '%d hora(s) y %d minuto(s)' "$hours" "$remaining_minutes"
+    else
+        printf '%d minuto(s)' "$remaining_minutes"
+    fi
+}
 
 install_dependencies() {
     export DEBIAN_FRONTEND=noninteractive
@@ -25,11 +46,19 @@ install_dependencies() {
 }
 
 prepare_state() {
+    local duration
     install -d -m 700 "$CIDdir" "$SRC"
     for file in Admin-ID Reseller-ID Allowed-Groups; do
         [[ -e "$CIDdir/$file" ]] || : > "$CIDdir/$file"
         chmod 600 "$CIDdir/$file"
     done
+
+    duration="$(tr -d '[:space:]' < "$KEY_DURATION_FILE" 2>/dev/null || true)"
+    if ! valid_key_duration "$duration"; then
+        printf '240\n' > "$KEY_DURATION_FILE"
+    fi
+    chmod 600 "$KEY_DURATION_FILE"
+
     cat > "$CIDdir/repository.env" <<EOF
 TELEBOTGEN_REPOSITORY=$(printf '%q' "$REPOSITORY")
 TELEBOTGEN_REF=$(printf '%q' "$REF")
@@ -154,6 +183,21 @@ configure_admin() {
     echo 'Administrador guardado.'; pause_menu
 }
 
+configure_key_duration() {
+    local minutes
+    read -r -p 'Duración de cada nueva key en minutos: ' minutes
+    valid_key_duration "$minutes" || {
+        echo 'Duración inválida. Usa un número entre 1 y 525600.'
+        pause_menu
+        return
+    }
+    printf '%s\n' "$minutes" > "$KEY_DURATION_FILE"
+    chmod 600 "$KEY_DURATION_FILE"
+    printf 'Duración guardada: %s (%s).\n' "$minutes" "$(human_duration "$minutes")"
+    systemctl try-restart telebotgen.service >/dev/null 2>&1 || true
+    pause_menu
+}
+
 append_numeric() {
     local file="$1" label="$2" value
     read -r -p "$label: " value
@@ -169,7 +213,7 @@ append_group() {
     [[ "$value" =~ ^-[0-9]+$ ]] || { echo 'ID de grupo inválido.'; pause_menu; return; }
     grep -Fxq -- "$value" "$CIDdir/Allowed-Groups" 2>/dev/null || printf '%s\n' "$value" >> "$CIDdir/Allowed-Groups"
     sort -u -o "$CIDdir/Allowed-Groups" "$CIDdir/Allowed-Groups"; chmod 600 "$CIDdir/Allowed-Groups"
-    echo 'Grupo permitido.'; pause_menu
+    echo 'Grupo permitido. Todos sus miembros podrán usar /Keygen.'; pause_menu
 }
 
 toggle_bot() {
@@ -191,10 +235,13 @@ send_test_message() {
 }
 
 show_status() {
+    local duration
+    duration="$(tr -d '[:space:]' < "$KEY_DURATION_FILE" 2>/dev/null || printf 240)"
     clear
     printf '%s\nESTADO TELEBOTGEN\n%s\n' "$BAR" "$BAR"
     printf 'API local: '; curl -fsS "$LICENSE_API" 2>/dev/null | jq -r '.status + " " + .version' || echo OFFLINE
     printf 'Bot: '; systemctl is-active telebotgen.service || true
+    printf 'Duración de keys: %s minutos (%s)\n' "$duration" "$(human_duration "$duration")"
     printf 'Legacy 8888: '; ss -lntp 2>/dev/null | grep -q ':8888 ' && echo 'ERROR: activo' || echo 'desactivado'
     printf '\nRevendedores:\n'; cat "$CIDdir/Reseller-ID" 2>/dev/null || true
     printf '\nGrupos permitidos:\n'; cat "$CIDdir/Allowed-Groups" 2>/dev/null || true
@@ -203,20 +250,22 @@ show_status() {
 }
 
 bot_gen() {
-    local option bot_state version
+    local option bot_state version duration
     while true; do
         clear
         systemctl is-active --quiet telebotgen.service && bot_state='ONLINE' || bot_state='OFFLINE'
         version="$(cat "$CIDdir/vercion" 2>/dev/null || printf desarrollo)"
+        duration="$(tr -d '[:space:]' < "$KEY_DURATION_FILE" 2>/dev/null || printf 240)"
         printf '%s\n TELEBOTGEN / HEX TUNNEL %s\n%s\n' "$BAR" "$version" "$BAR"
         printf '[1] Configurar token de Telegram\n'
         printf '[2] Configurar administrador\n'
         printf '[3] Agregar revendedor\n'
         printf '[4] Agregar grupo permitido\n'
-        printf '[5] Instalar/actualizar archivos\n'
-        printf '[6] Iniciar/detener bot             %s\n' "$bot_state"
-        printf '[7] Enviar mensaje de prueba\n'
-        printf '[8] Estado y diagnósticos\n'
+        printf '[5] Configurar duración de keys     %s min\n' "$duration"
+        printf '[6] Instalar/actualizar archivos\n'
+        printf '[7] Iniciar/detener bot             %s\n' "$bot_state"
+        printf '[8] Enviar mensaje de prueba\n'
+        printf '[9] Estado y diagnósticos\n'
         printf '[0] Salir\n%s\n' "$BAR"
         read -r -p 'Opción: ' option
         case "$option" in
@@ -224,10 +273,11 @@ bot_gen() {
             2) configure_admin ;;
             3) append_numeric "$CIDdir/Reseller-ID" 'ID del revendedor' ;;
             4) append_group ;;
-            5) install_bot_files; pause_menu ;;
-            6) toggle_bot ;;
-            7) send_test_message ;;
-            8) show_status ;;
+            5) configure_key_duration ;;
+            6) install_bot_files; pause_menu ;;
+            7) toggle_bot ;;
+            8) send_test_message ;;
+            9) show_status ;;
             0) return ;;
             *) echo 'Opción inválida.'; sleep 1 ;;
         esac
