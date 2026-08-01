@@ -37,8 +37,8 @@ comand() {
                 /allowgroup|/permitirgrupo) access_allow_group ;;
                 /delgroup|/eliminargrupo) access_del_group ;;
                 /groups|/grupos) access_list_groups ;;
-                /keytime|/tiempokey) access_show_key_duration ;;
-                /setkeytime|/configurartiempokey) access_set_key_duration ;;
+                /keytime|/Keytime|/KEYTIME|/tiempokey) access_show_key_duration ;;
+                /setkeytime|/Setkeytime|/SETKEYTIME|/configurartiempokey) access_set_key_duration ;;
                 /api) access_api_status ;;
                 /infosys|/sistema) infosys_src ;;
                 /update|/actualizar) update ;;
