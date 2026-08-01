@@ -162,4 +162,22 @@ gerar_key
 [[ ! -e "$TMP/create-args" ]]
 grep -Fq 'Usa solamente <code>/Keygen</code>' "$TMP/private-message"
 
+# Una cuenta con licencia activa no puede generar una segunda key.
+license_api_active_for_owner() {
+    cat <<'JSON'
+{
+  "id": "existing-license",
+  "status": "active",
+  "expires_at": "2099-01-01T00:00:00Z",
+  "bound_ip": null
+}
+JSON
+}
+
+rm -f "$TMP/create-args" "$TMP/private-message"
+comando=(/Keygen)
+gerar_key
+[[ ! -e "$TMP/create-args" ]]
+grep -Fq 'Ya tienes una licencia activa' "$TMP/private-message"
+
 echo 'Role, group and self-service license flow tests passed.'
