@@ -1,53 +1,47 @@
 #!/usr/bin/env bash
 
+common_command() {
+    case "${comando[0]:-}" in
+        /start|/Start|/menu|/Menu|/comenzar|/Comenzar) menu_src; return 0 ;;
+        /help|/Help|/ayuda|/Ayuda) ayuda_src; return 0 ;;
+        /id|/ID) myid_src; return 0 ;;
+        /license|/licencia) license_status_src; return 0 ;;
+        /install|/instal) link_src; return 0 ;;
+        /upgrade|/actualizarhex) upgrade_src; return 0 ;;
+    esac
+    return 1
+}
+
 comand() {
     local command_name="${comando[0]:-}"
-    local is_admin=0 is_allowed=0
-    grep -Fxq "$chatuser" <<< "$permited" && is_admin=1
-    grep -Fxq "$chatuser" "$CID" 2>/dev/null && is_allowed=1
+    [[ -n "$command_name" ]] || return 0
 
-    if ((is_admin == 0 && is_allowed == 0)); then
-        case "$command_name" in
-            /[Ii][Dd]|/[Ii]d) myid_src & ;;
-            /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|/[Cc]omenzar|[Cc]omenzar) menu_src & ;;
-            /[Aa]yuda|[Aa]yuda|/[Hh]elp|[Hh]elp) ayuda_src & ;;
-        esac
-        return 0
-    fi
+    common_command && return 0
 
-    if ((is_admin == 0)); then
-        case "$command_name" in
-            /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|/[Cc]omenzar|[Cc]omenzar) menu_src & ;;
-            /[Aa]yuda|[Aa]yuda|/[Hh]elp|[Hh]elp) ayuda_src & ;;
-            /[Ii][Dd]|/[Ii]d) myid_src & ;;
-            /[Ii]nstall|/[Ii]nstal) link_src & ;;
-            /[Kk]eygen) gerar_key & ;;
-        esac
-        return 0
-    fi
-
-    if [[ -n "${message_reply_to_message_message_id[$id]:-}" ]]; then
-        case "${message_reply_to_message_text[$id]:-}" in
-            /del) deleteID_reply ;;
-            /add) addID_reply ;;
-        esac
-    elif [[ -n "${message_document_file_id[$id]:-}" ]]; then
-        download_file
-    else
-        case "$command_name" in
-            /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|/[Cc]omenzar|[Cc]omenzar) menu_src & ;;
-            /[Aa]yuda|[Aa]yuda|/[Hh]elp|[Hh]elp) ayuda_src & ;;
-            /[Ii][Dd]|/[Ii]d) myid_src & ;;
-            /[Aa]dd|/[Dd]el) reply & ;;
-            /[Pp]ower) start_gen & ;;
-            /[Kk]eygen) gerar_key & ;;
-            /[Ii]nfosys) infosys_src & ;;
-            /[Ll]ist) listID_src & ;;
-            /[Rr]eboot) reboot_src & ;;
-            /[Ii]nstall|/[Ii]nstal) link_src & ;;
-            /[Cc]ache) cache_src & ;;
-            /[Uu]pdate|/[Aa]ctualizar) update & ;;
-            /[Dd]onar|[Dd]onar) donar_OnOff & ;;
-        esac
-    fi
+    case "$actor_role" in
+        reseller)
+            case "$command_name" in
+                /keygen|/Keygen) gerar_key ;;
+                /mykeys|/miskeys) access_mykeys ;;
+            esac
+            ;;
+        admin)
+            case "$command_name" in
+                /keygen|/Keygen) gerar_key ;;
+                /mykeys|/miskeys) access_mykeys ;;
+                /licenses|/licencias) access_list_licenses ;;
+                /revoke|/revocar) access_revoke_license ;;
+                /reset|/resetear) access_reset_license ;;
+                /addreseller|/addrevendedor) access_add_reseller ;;
+                /delreseller|/delrevendedor) access_del_reseller ;;
+                /resellers|/revendedores) access_list_resellers ;;
+                /allowgroup|/permitirgrupo) access_allow_group ;;
+                /delgroup|/eliminargrupo) access_del_group ;;
+                /groups|/grupos) access_list_groups ;;
+                /api) access_api_status ;;
+                /infosys|/sistema) infosys_src ;;
+                /update|/actualizar) update ;;
+            esac
+            ;;
+    esac
 }
