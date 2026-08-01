@@ -58,11 +58,21 @@ jobs:
             [[ -n "$item" ]] || continue
             active_sources+=("sources/$item")
           done < sources/lista-bot
+
           ! grep -REn 'HexGen/|HEXGEN_PORT|KEY_ROOT=.*/http-shell|localhost:8888|:8888/' "${active_sources[@]}"
           ! grep -En 'ExecStart=.*hexgen-http|enable .*hexgen-http|restart .*hexgen-http' confbot.sh update.sh
+          ! grep -REn '/[Kk]eygen[^\n]*(minutos|telegram_id|usuario)' sources README.md
+          ! grep -REn 'resolve_key_target|comando\[2\].*owner|reply_user_id.*key' sources/gerar_key
+
           grep -Fq 'http://127.0.0.1:8080' sources/license_api
           grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' sources/license_api
           grep -Fq 'Allowed-Groups' sources/roles
+          grep -Fq 'Key-Duration-Minutes' sources/roles
+          grep -Fq 'owner_id="$actor_id"' sources/gerar_key
+          grep -Fq 'allowed-group-member' sources/gerar_key
+          grep -Fq 'keygen_context_allowed' sources/gerar_key
+          grep -Fq 'Todos los miembros pueden generar su propia key' sources/menu
+          grep -Fq '/Setkeytime minutos' sources/access
           grep -Fq '@Gh0stDeveloper' sources/menu
           grep -Fq '@Jotchua_DevzZ' sources/menu
 
