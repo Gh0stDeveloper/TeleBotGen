@@ -83,7 +83,7 @@ gerar_key() {
     delivery_text+="$LINE"
 
     if [[ "$current_chat_type" == group ]]; then
-        if send_html "$owner_id" "$delivery_text"; then
+        if send_html "$owner_id" "$(printf '%b' "$delivery_text")"; then
             confirmation="<b>Key generada.</b> Los datos privados fueron enviados al usuario que ejecutó /Keygen."
         else
             license_api_revoke "$license_id" "Entrega privada fallida; el usuario debe abrir el bot antes de generar desde un grupo" >/dev/null 2>&1 || true
