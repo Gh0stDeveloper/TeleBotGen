@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Roles y control de grupos permitidos.
+# Roles, grupos permitidos y configuración global de keys.
 
 ADMIN_FILE="${TELEBOTGEN_ADMIN_FILE:-/etc/ADM-db/Admin-ID}"
 RESELLER_FILE="${TELEBOTGEN_RESELLER_FILE:-/etc/ADM-db/Reseller-ID}"
 GROUP_FILE="${TELEBOTGEN_GROUP_FILE:-/etc/ADM-db/Allowed-Groups}"
-RESELLER_MAX_MINUTES="${TELEBOTGEN_RESELLER_MAX_MINUTES:-43200}"
+KEY_DURATION_FILE="${TELEBOTGEN_KEY_DURATION_FILE:-/etc/ADM-db/Key-Duration-Minutes}"
+DEFAULT_KEY_DURATION_MINUTES="${TELEBOTGEN_DEFAULT_KEY_DURATION_MINUTES:-240}"
+
+valid_key_duration() {
+    local minutes="${1:-}"
+    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -ge 1 && "$minutes" -le 525600 ]]
+}
 
 roles_prepare_files() {
     local file directory
@@ -14,6 +20,14 @@ roles_prepare_files() {
         [[ -e "$file" ]] || : > "$file"
         chmod 600 "$file"
     done
+
+    directory="$(dirname -- "$KEY_DURATION_FILE")"
+    install -d -m 700 "$directory"
+    if [[ ! -s "$KEY_DURATION_FILE" ]]; then
+        valid_key_duration "$DEFAULT_KEY_DURATION_MINUTES" || DEFAULT_KEY_DURATION_MINUTES=240
+        printf '%s\n' "$DEFAULT_KEY_DURATION_MINUTES" > "$KEY_DURATION_FILE"
+    fi
+    chmod 600 "$KEY_DURATION_FILE"
 }
 
 role_file_contains() {
@@ -26,6 +40,32 @@ role_is_reseller() { role_file_contains "$RESELLER_FILE" "$1"; }
 
 group_is_chat() { [[ "${1:-}" == -* ]]; }
 group_is_allowed() { role_file_contains "$GROUP_FILE" "$1"; }
+
+keygen_context_allowed() {
+    local chat_type="${1:-}" chat_id="${2:-}"
+    [[ "$chat_type" == private ]] || {
+        [[ "$chat_type" == group ]] && group_is_allowed "$chat_id"
+    }
+}
+
+key_duration_get() {
+    local minutes
+    minutes="$(tr -d '[:space:]' < "$KEY_DURATION_FILE" 2>/dev/null || true)"
+    if ! valid_key_duration "$minutes"; then
+        minutes="$DEFAULT_KEY_DURATION_MINUTES"
+    fi
+    valid_key_duration "$minutes" || minutes=240
+    printf '%s' "$minutes"
+}
+
+key_duration_set() {
+    local minutes="${1:-}" temporary
+    valid_key_duration "$minutes" || return 1
+    temporary="$(mktemp)"
+    printf '%s\n' "$minutes" > "$temporary"
+    install -m 600 "$temporary" "$KEY_DURATION_FILE"
+    rm -f "$temporary"
+}
 
 actor_resolve_role() {
     local actor="$1"
@@ -54,22 +94,10 @@ role_add_value() {
 }
 
 role_remove_value() {
-    local file="$1" value="$2" tmp
+    local file="$1" value="$2" temporary
     [[ -n "$value" && -e "$file" ]] || return 2
-    tmp="$(mktemp)"
-    grep -Fvx -- "$value" "$file" > "$tmp" || true
-    install -m 600 "$tmp" "$file"
-    rm -f "$tmp"
-}
-
-role_can_generate() {
-    [[ "${1:-}" == admin || "${1:-}" == reseller ]]
-}
-
-role_validate_duration() {
-    local role="$1" minutes="$2"
-    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -ge 1 && "$minutes" -le 525600 ]] || return 1
-    if [[ "$role" == reseller && "$minutes" -gt "$RESELLER_MAX_MINUTES" ]]; then
-        return 1
-    fi
+    temporary="$(mktemp)"
+    grep -Fvx -- "$value" "$file" > "$temporary" || true
+    install -m 600 "$temporary" "$file"
+    rm -f "$temporary"
 }
