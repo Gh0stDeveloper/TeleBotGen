@@ -86,8 +86,8 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 LockPersonality=true
 RestrictSUIDSGID=true
-ReadOnlyPaths=/opt/ghostdeveloper-license-server
-ReadWritePaths=/etc/ADM-db /etc/ghostdeveloper-license /var/lib/ghostdeveloper-license
+ReadOnlyPaths=/opt/ghostdeveloper-license-server /etc/ghostdeveloper-license
+ReadWritePaths=/etc/ADM-db
 
 [Install]
 WantedBy=multi-user.target
@@ -106,7 +106,6 @@ install_bot_files() {
     remove_legacy_validator
 
     staging="$(mktemp -d /tmp/telebotgen-update.XXXXXX)"
-    trap 'rm -rf "${staging:-}"' RETURN
     list="$staging/lista-bot"
     download_file "$RAW_BASE/sources/lista-bot" "$list" 600
 
@@ -135,6 +134,7 @@ install_bot_files() {
     if [[ -s "$CIDdir/token" && -s "$CIDdir/Admin-ID" ]]; then
         systemctl restart telebotgen.service
     fi
+    rm -rf "$staging"
     echo 'TeleBotGen instalado y conectado a GhostDeveloperLicenseServer.'
 }
 
