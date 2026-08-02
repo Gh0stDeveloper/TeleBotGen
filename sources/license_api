@@ -20,23 +20,38 @@ license_api_token() {
 }
 
 license_api_request() {
-    local method="$1" path="$2" payload="${3:-}" token
+    local method="$1" path="$2" payload="${3:-}" token config body status
     token="$(license_api_token)" || return 1
+    config="$(mktemp /tmp/telebotgen-license-curl.XXXXXX)"
+    body="$(mktemp /tmp/telebotgen-license-body.XXXXXX)"
+    printf 'header = "Authorization: Bearer %s"\n' "$token" > "$config"
+    chmod 600 "$config" "$body"
     case "$method" in
         GET)
-            curl -fsS --connect-timeout 3 --max-time 15 \
-                -H "Authorization: Bearer $token" \
-                "$LICENSE_API_BASE$path"
+            status="$(curl -sS --connect-timeout 3 --max-time 15 \
+                --config "$config" -o "$body" -w '%{http_code}' \
+                "$LICENSE_API_BASE$path")" || status=000
             ;;
         POST)
-            curl -fsS --connect-timeout 3 --max-time 20 \
-                -H "Authorization: Bearer $token" \
+            status="$(curl -sS --connect-timeout 3 --max-time 20 \
+                --config "$config" \
                 -H 'Content-Type: application/json' \
                 --data-binary "$payload" \
-                "$LICENSE_API_BASE$path"
+                -o "$body" -w '%{http_code}' \
+                "$LICENSE_API_BASE$path")" || status=000
             ;;
-        *) return 2 ;;
+        *) rm -f "$config" "$body"; return 2 ;;
     esac
+    rm -f "$config"
+    if [[ ! "$status" =~ ^2[0-9]{2}$ ]]; then
+        TELEBOTGEN_LICENSE_API_ERROR="$(jq -r '.detail // empty' "$body" 2>/dev/null || true)"
+        [[ -n "$TELEBOTGEN_LICENSE_API_ERROR" ]] || TELEBOTGEN_LICENSE_API_ERROR="HTTP $status"
+        export TELEBOTGEN_LICENSE_API_ERROR
+        rm -f "$body"
+        return 1
+    fi
+    cat "$body"
+    rm -f "$body"
 }
 
 license_api_health() {
@@ -50,22 +65,17 @@ license_api_all() {
 license_api_for_owner() {
     local owner_id="$1" data
     [[ "$owner_id" =~ ^[0-9]+$ ]] || return 2
-    data="$(license_api_all)" || return 1
-    jq -c --arg owner "$owner_id" \
-        '[.items[] | select(.owner_telegram_id == $owner)] | sort_by(.expires_at) | reverse' \
-        <<< "$data"
+    data="$(license_api_request GET "/api/v1/admin/licenses?product=hextunnel&owner_telegram_id=$owner_id&limit=200&offset=0")" \
+        || return 1
+    jq -c '.items | sort_by(.expires_at) | reverse' <<< "$data"
 }
 
 license_api_active_for_owner() {
-    local owner_id="$1" data now
-    data="$(license_api_for_owner "$owner_id")" || return 1
-    now="$(date -u +%s)"
-    jq -c --argjson now "$now" '
-        [ .[]
-          | .expiry_epoch = ((.expires_at | fromdateiso8601?) // 0)
-          | select((.status == "active" or .status == "activated") and .expiry_epoch > $now)
-        ] | sort_by(.expiry_epoch) | last // empty
-    ' <<< "$data"
+    local owner_id="$1" data
+    [[ "$owner_id" =~ ^[0-9]+$ ]] || return 2
+    data="$(license_api_request GET "/api/v1/admin/licenses?product=hextunnel&owner_telegram_id=$owner_id&active_only=true&limit=1&offset=0")" \
+        || return 1
+    jq -c '.items[0] // empty' <<< "$data"
 }
 
 license_remaining_seconds() {
