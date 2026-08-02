@@ -1,86 +1,73 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
 
-dirb="/etc/ADM-db"
-mkdir -p "$dirb"
-dirs="${dirb}/sources"
-mkdir -p "$dirs"
+STATE_DIR="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
+DEPLOY_ENV="${TELEBOTGEN_DEPLOY_ENV:-/etc/telebotgen/deploy.env}"
 
-BRANCH="master"
-REQUEST_BASE="https://raw.githubusercontent.com/JotchuaDevz/TeleBotGen/${BRANCH}/sources"
-bar="\e[0;36m=====================================================\e[0m"
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || {
+    echo 'TeleBotGen update must run as root.' >&2
+    exit 1
+}
+[[ -f "$DEPLOY_ENV" ]] || {
+    echo "ERROR: falta la configuración protegida $DEPLOY_ENV." >&2
+    exit 1
+}
+owner="$(stat -c '%U' "$DEPLOY_ENV")"
+mode="$(stat -c '%a' "$DEPLOY_ENV")"
+[[ "$owner" == root && "$mode" == 600 ]] || {
+    echo "ERROR: $DEPLOY_ENV debe pertenecer a root y usar modo 600." >&2
+    exit 1
+}
+# shellcheck disable=SC1090
+source "$DEPLOY_ENV"
+REPOSITORY="${TELEBOTGEN_REPOSITORY:-}"
+REF="${TELEBOTGEN_REF:-}"
+[[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    echo 'ERROR: repositorio protegido inválido.' >&2
+    exit 1
+}
+[[ "$REF" =~ ^[A-Za-z0-9._/-]+$ && "$REF" != /* && "$REF" != *..* ]] || {
+    echo 'ERROR: referencia protegida inválida.' >&2
+    exit 1
+}
+RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
+unset owner mode
 
-veryfy_fun () {
-    mkdir -p "$dirs"
-    unset ARQ
-    case "$1" in
-        "BotGen.sh") ARQ="${dirb}" ;;
-        *) ARQ="${dirs}" ;;
-    esac
-    mv -f "$HOME/$1" "${ARQ}/$1"
-    chmod +x "${ARQ}/$1"
+notify_admin() {
+    local message="$1" token admin_id config response
+    token="$(tr -d '\r\n' < "$STATE_DIR/token" 2>/dev/null || true)"
+    admin_id="$(head -n1 "$STATE_DIR/Admin-ID" 2>/dev/null || true)"
+    [[ -n "$token" && "$admin_id" =~ ^[0-9]+$ ]] || return 0
+    config="$(mktemp /tmp/telebotgen-telegram.XXXXXX)"
+    response="$(mktemp /tmp/telebotgen-telegram-response.XXXXXX)"
+    {
+        printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$token"
+        printf 'request = "POST"\n'
+    } > "$config"
+    chmod 600 "$config" "$response"
+    curl -sS --max-time 10 --config "$config" \
+        --data-urlencode "chat_id=$admin_id" \
+        --data-urlencode "text=$message" \
+        -o "$response" >/dev/null 2>&1 || true
+    rm -f "$config" "$response"
 }
 
-update () {
-    [[ -d "${dirs}" ]] && rm -rf "${dirs}"
-    [[ -e "${dirb}/BotGen.sh" ]] && rm -f "${dirb}/BotGen.sh"
-    [[ -e /bin/ShellBot.sh ]] && rm -f /bin/ShellBot.sh
+installer="$(mktemp /tmp/telebotgen-deploy.XXXXXX)"
+trap 'rm -f "${installer:-}"' EXIT
+notify_admin "TeleBotGen: iniciando actualización desde ${REPOSITORY}@${REF}."
 
-    cd "$HOME" || return 1
-    REQUEST="$REQUEST_BASE"
+curl -fsSL --retry 3 --connect-timeout 8 --max-time 60 \
+    "$RAW_BASE/deploy.sh" -o "$installer"
+sed -i 's/\r$//' "$installer"
+bash -n "$installer"
+chmod 700 "$installer"
 
-    wget -q -O "$HOME/HexGen" "${REQUEST}/lista-bot"
-
-    if [[ ! -s "$HOME/HexGen" ]]; then
-        echo "update.sh: no se pudo descargar lista-bot, abortando update." >&2
-        rm -f "$HOME/HexGen"
-        return 1
-    fi
-
-    fallo=0
-    while IFS= read -r arqx; do
-        [[ -z "$arqx" ]] && continue
-        wget -q -O "$HOME/$arqx" "${REQUEST}/${arqx}"
-        if [[ -s "$HOME/$arqx" ]]; then
-            veryfy_fun "$arqx"
-        else
-            echo "update.sh: fallo al descargar $arqx" >&2
-            rm -f "$HOME/$arqx"
-            fallo=1
-        fi
-    done < "$HOME/HexGen"
-
-    rm -f "$HOME/HexGen"
-    return $fallo
-}
-
-mensaje () {
-    if [[ "$1" = 1 ]]; then
-        MENSAJE="Actualizando BotGen"
-    elif [[ "$1" = 2 ]]; then
-        MENSAJE="BotGen Actualizado"
-    elif [[ "$1" = 3 ]]; then
-        MENSAJE="Fallo la actualizacion, se mantiene la version anterior"
-    fi
-    TOKEN="$(cat "${dirb}/token" 2>/dev/null)"
-    ID="$(cat "${dirb}/Admin-ID" 2>/dev/null)"
-    [[ -z "$TOKEN" || "$TOKEN" == "null" || -z "$ID" ]] && return
-    URL="https://api.telegram.org/bot${TOKEN}/sendMessage"
-    curl -s -X POST "$URL" -d chat_id="$ID" -d text="$MENSAJE" >/dev/null 2>&1
-}
-
-mensaje 1
-
-if update; then
-    chmod +x "${dirb}/BotGen.sh"
-    systemctl restart telebotgen.service
-    sleep 2
-    if systemctl is-active --quiet telebotgen.service; then
-        mensaje 2
-    else
-        mensaje 3
-    fi
+if TELEBOTGEN_REPOSITORY="$REPOSITORY" TELEBOTGEN_REF="$REF" \
+    bash "$installer"; then
+    version="$(tr -d '\r\n' < "$STATE_DIR/vercion" 2>/dev/null || printf desconocida)"
+    notify_admin "TeleBotGen actualizado correctamente a ${version}."
 else
-    mensaje 3
+    notify_admin 'TeleBotGen: actualización revertida. Revisa journalctl -u telebotgen.'
+    exit 1
 fi
-
-rm -f "$HOME/update.sh"

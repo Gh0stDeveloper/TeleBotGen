@@ -1,57 +1,48 @@
-#!/bin/bash
-# -*- ENCODING: UTF-8 -*-
+#!/usr/bin/env bash
 
-comand () {
-	    if [[ $(echo $permited|grep "${chatuser}") = "" ]]; then
-		 if [[ $(cat ${CID}|grep "${chatuser}") = "" ]]; then
-			 case ${comando[0]} in
-				 /[Ii]d|/[Ii]D)myid_src &;;
-				 /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|[Cc]omensar|/[Cc]omensar)menu_src &;;
-				 /[Aa]yuda|[Aa]yuda|[Hh]elp|/[Hh]elp)ayuda_src &;;
-			 esac
-		 else
-		 	if [[ ${message_text[$id]} || ${callback_query_data[$id]} ]]; then
-			 case ${comando[0]} in
-				 /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|[Cc]omensar|/[Cc]omensar)menu_src &;;
-				 /[Aa]yuda|[Aa]yuda|[Hh]elp|/[Hh]elp)ayuda_src &;;
-				 /[Ii]d|/[Ii]D)myid_src &;;
-				 /[Ii]nstal)link_src &;;
-				 /[Kk]eygen)gerar_key &;;
-			 esac
-			fi
-			sleep 5 
-			[[ -e "/etc/donar_active.txt" ]] && donar
-		 fi
-	    else
+common_command() {
+    case "${comando[0]:-}" in
+        /start|/Start|/menu|/Menu|/comenzar|/Comenzar) menu_src; return 0 ;;
+        /help|/Help|/ayuda|/Ayuda) ayuda_src; return 0 ;;
+        /id|/ID) myid_src; return 0 ;;
+        /license|/License|/licencia|/Licencia) license_status_src; return 0 ;;
+        /install|/Install|/instal|/Instal) link_src; return 0 ;;
+        /upgrade|/Upgrade|/actualizarhex) upgrade_src; return 0 ;;
+        /keygen|/Keygen|/KEYGEN) gerar_key; return 0 ;;
+    esac
+    return 1
+}
 
-	    	if [[ ${message_reply_to_message_message_id[$id]} ]]; then
-				case ${message_reply_to_message_text[$id]} in
-					'/del')deleteID_reply;;
-					'/add')addID_reply;;
-				esac
+comand() {
+    local command_name="${comando[0]:-}"
+    [[ -n "$command_name" ]] || return 0
 
-			elif [[ ${message_document_file_id[$id]} ]]; then
-					 download_file
+    common_command && return 0
 
-	    	elif [[ ${message_text[$id]} || ${callback_query_data[$id]} ]]; then
-
-		 		case ${comando[0]} in
-					 /[Mm]enu|[Mm]enu|/[Ss]tart|[Ss]tart|[Cc]omensar|/[Cc]omensar)menu_src &;;
-					 /[Aa]yuda|[Aa]yuda|[Hh]elp|/[Hh]elp)ayuda_src &;;
-					 /[Ii]d|/[Ii]D)myid_src &;;
-					 /[Aa]dd|/[Dd]el)reply &;;
-					 /[Pp]ower)start_gen &;;
-					 /[Kk]eygen)gerar_key &;;
-			 		 /[Ii]nfosys)infosys_src &;;
-			 		 /[Ll]ist)listID_src &;;
-					 /[Rr]eboot)reboot_src &;;
-			 		 /[Ii]nstal)link_src &;;
-			 		 /[Cc]ache)cache_src &;;
-					 /[Uu]pdate|/[Aa]ctualizar)update &;;
-					 /[Dd]onar|[Dd]onar)donar_OnOff &;;
-				esac
-
-			fi
-
-	    fi
+    case "$actor_role" in
+        reseller)
+            case "$command_name" in
+                /mykeys|/miskeys) access_mykeys ;;
+            esac
+            ;;
+        admin)
+            case "$command_name" in
+                /mykeys|/miskeys) access_mykeys ;;
+                /licenses|/licencias) access_list_licenses ;;
+                /revoke|/revocar) access_revoke_license ;;
+                /reset|/resetear) access_reset_license ;;
+                /addreseller|/addrevendedor) access_add_reseller ;;
+                /delreseller|/delrevendedor) access_del_reseller ;;
+                /resellers|/revendedores) access_list_resellers ;;
+                /allowgroup|/permitirgrupo) access_allow_group ;;
+                /delgroup|/eliminargrupo) access_del_group ;;
+                /groups|/grupos) access_list_groups ;;
+                /keytime|/Keytime|/KEYTIME|/tiempokey) access_show_key_duration ;;
+                /setkeytime|/Setkeytime|/SETKEYTIME|/configurartiempokey) access_set_key_duration ;;
+                /api) access_api_status ;;
+                /infosys|/sistema) infosys_src ;;
+                /update|/actualizar) update ;;
+            esac
+            ;;
+    esac
 }

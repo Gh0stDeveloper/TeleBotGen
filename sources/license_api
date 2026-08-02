@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# Cliente local para GhostDeveloperLicenseServer.
+
+LICENSE_API_BASE="${TELEBOTGEN_LICENSE_API_BASE:-http://127.0.0.1:8080}"
+LICENSE_ADMIN_TOKEN_FILE="${TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE:-/etc/ghostdeveloper-license/secrets/admin-token}"
+HEXTUNNEL_PUBLIC_URL="${HEXTUNNEL_PUBLIC_URL:-https://ghostdeveloper.duckdns.org}"
+
+html_escape() {
+    local value="${1:-}"
+    value="${value//&/&amp;}"
+    value="${value//</&lt;}"
+    value="${value//>/&gt;}"
+    value="${value//\"/&quot;}"
+    printf '%s' "$value"
+}
+
+license_api_token() {
+    [[ -s "$LICENSE_ADMIN_TOKEN_FILE" ]] || return 1
+    tr -d '\r\n' < "$LICENSE_ADMIN_TOKEN_FILE"
+}
+
+license_api_request() {
+    local method="$1" path="$2" payload="${3:-}" token config body status
+    token="$(license_api_token)" || return 1
+    config="$(mktemp /tmp/telebotgen-license-curl.XXXXXX)"
+    body="$(mktemp /tmp/telebotgen-license-body.XXXXXX)"
+    printf 'header = "Authorization: Bearer %s"\n' "$token" > "$config"
+    chmod 600 "$config" "$body"
+    case "$method" in
+        GET)
+            status="$(curl -sS --connect-timeout 3 --max-time 15 \
+                --config "$config" -o "$body" -w '%{http_code}' \
+                "$LICENSE_API_BASE$path")" || status=000
+            ;;
+        POST)
+            status="$(curl -sS --connect-timeout 3 --max-time 20 \
+                --config "$config" \
+                -H 'Content-Type: application/json' \
+                --data-binary "$payload" \
+                -o "$body" -w '%{http_code}' \
+                "$LICENSE_API_BASE$path")" || status=000
+            ;;
+        *) rm -f "$config" "$body"; return 2 ;;
+    esac
+    rm -f "$config"
+    if [[ ! "$status" =~ ^2[0-9]{2}$ ]]; then
+        TELEBOTGEN_LICENSE_API_ERROR="$(jq -r '.detail // empty' "$body" 2>/dev/null || true)"
+        [[ -n "$TELEBOTGEN_LICENSE_API_ERROR" ]] || TELEBOTGEN_LICENSE_API_ERROR="HTTP $status"
+        export TELEBOTGEN_LICENSE_API_ERROR
+        rm -f "$body"
+        return 1
+    fi
+    cat "$body"
+    rm -f "$body"
+}
+
+license_api_health() {
+    curl -fsS --connect-timeout 3 --max-time 8 "$LICENSE_API_BASE/health"
+}
+
+license_api_all() {
+    license_api_request GET '/api/v1/admin/licenses?product=hextunnel&limit=200&offset=0'
+}
+
+license_api_for_owner() {
+    local owner_id="$1" data
+    [[ "$owner_id" =~ ^[0-9]+$ ]] || return 2
+    data="$(license_api_request GET "/api/v1/admin/licenses?product=hextunnel&owner_telegram_id=$owner_id&limit=200&offset=0")" \
+        || return 1
+    jq -c '.items | sort_by(.expires_at) | reverse' <<< "$data"
+}
+
+license_api_active_for_owner() {
+    local owner_id="$1" data
+    [[ "$owner_id" =~ ^[0-9]+$ ]] || return 2
+    data="$(license_api_request GET "/api/v1/admin/licenses?product=hextunnel&owner_telegram_id=$owner_id&active_only=true&limit=1&offset=0")" \
+        || return 1
+    jq -c '.items[0] // empty' <<< "$data"
+}
+
+license_remaining_seconds() {
+    local expires_at="$1" target now
+    target="$(date -d "$expires_at" +%s 2>/dev/null)" || { printf '0'; return; }
+    now="$(date -u +%s)"
+    ((target > now)) && printf '%s' "$((target-now))" || printf '0'
+}
+
+license_human_duration() {
+    local seconds="${1:-0}" days hours minutes
+    [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
+    days=$((seconds/86400))
+    hours=$(((seconds%86400)/3600))
+    minutes=$(((seconds%3600)/60))
+    if ((days > 0)); then
+        printf '%d día(s), %d hora(s) y %d minuto(s)' "$days" "$hours" "$minutes"
+    elif ((hours > 0)); then
+        printf '%d hora(s) y %d minuto(s)' "$hours" "$minutes"
+    else
+        printf '%d minuto(s)' "$minutes"
+    fi
+}
+
+license_api_create() {
+    local minutes="$1" owner_id="$2" username="$3" issuer_id="$4" issuer_role="$5" source_chat="$6"
+    local payload
+    payload="$(jq -n \
+        --arg owner_id "$owner_id" \
+        --arg username "$username" \
+        --arg issuer_id "$issuer_id" \
+        --arg issuer_role "$issuer_role" \
+        --arg source_chat "$source_chat" \
+        --argjson minutes "$minutes" \
+        '{
+          product:"hextunnel",
+          owner_telegram_id:$owner_id,
+          owner_username:(if ($username|length)>0 then $username else null end),
+          expires_in_minutes:$minutes,
+          activation_limit:1,
+          metadata:{
+            issued_by_telegram_id:$issuer_id,
+            issued_by_role:$issuer_role,
+            source_chat_id:$source_chat,
+            channel:"telebotgen"
+          }
+        }')"
+    license_api_request POST '/api/v1/admin/licenses' "$payload"
+}
+
+license_api_revoke() {
+    local license_id="$1" reason="${2:-Revocada desde TeleBotGen}" payload
+    [[ "$license_id" =~ ^[A-Za-z0-9-]{16,64}$ ]] || return 2
+    payload="$(jq -n --arg reason "$reason" '{reason:$reason}')"
+    license_api_request POST "/api/v1/admin/licenses/$license_id/revoke" "$payload"
+}
+
+license_api_reset() {
+    local license_id="$1" reason="${2:-Reinicio autorizado desde TeleBotGen}" payload
+    [[ "$license_id" =~ ^[A-Za-z0-9-]{16,64}$ ]] || return 2
+    payload="$(jq -n --arg reason "$reason" '{reason:$reason}')"
+    license_api_request POST "/api/v1/admin/licenses/$license_id/reset-activation" "$payload"
+}
+
+hextunnel_install_command() {
+    cat <<'EOF'
+sudo bash -c 'command -v curl >/dev/null 2>&1 || { apt-get update -y && apt-get install -y curl ca-certificates; }; curl -fsSL https://ghostdeveloper.duckdns.org/install.sh -o /tmp/hextunnel-install.sh && chmod 700 /tmp/hextunnel-install.sh && exec /tmp/hextunnel-install.sh install'
+EOF
+}
+
+hextunnel_upgrade_command() {
+    printf '%s\n' 'sudo hextunnel-upgrade'
+}

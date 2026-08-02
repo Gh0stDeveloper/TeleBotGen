@@ -1,27 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-start_gen () {
-    # BUG FIX: buscaba/mataba el proceso viejo "http-server.sh" via
-    # ps/screen/killall, desconectado del servicio systemd real
-    # (hexgen-http.service). Esto hacia que /power SIEMPRE intentara
-    # levantar un segundo servidor duplicado peleando por el puerto 8888,
-    # en vez de controlar el que ya esta corriendo.
+start_gen() {
+    local bot_retorno
     if systemctl is-active --quiet hexgen-http.service; then
         systemctl stop hexgen-http.service
-        local bot_retorno="$LINE\n"
-        bot_retorno+="Generador: <u>Offline</u> ❌\n"
-        bot_retorno+="$LINE\n"
-        msj_fun
+        bot_retorno="$LINE\nServidor de validación: <b>OFFLINE</b>\n$LINE"
     else
         systemctl start hexgen-http.service
         sleep 1
-        local bot_retorno="$LINE\n"
         if systemctl is-active --quiet hexgen-http.service; then
-            bot_retorno+="Generador: <u>Online</u> ✅\n"
+            bot_retorno="$LINE\nServidor de validación: <b>ONLINE</b>\n$LINE"
         else
-            bot_retorno+="❌ El generador no pudo iniciar, revisa el servicio.\n"
+            bot_retorno="$LINE\nNo se pudo iniciar el servidor. Revisa: journalctl -u hexgen-http.service\n$LINE"
         fi
-        bot_retorno+="$LINE\n"
-        msj_fun
     fi
+    msj_fun
 }

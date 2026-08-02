@@ -1,23 +1,27 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-update () {
-    # BUG FIX: antes solo bajaba update.sh si NO existia ya, quedando
-    # con una copia vieja/rota para siempre si un intento anterior fallo.
-    wget -q -O "$HOME/update.sh" \
-        "https://raw.githubusercontent.com/JotchuaDevz/TeleBotGen/master/update.sh"
-
-    if [[ ! -s "$HOME/update.sh" ]]; then
-        local bot_retorno="$LINE\n"
-        bot_retorno+="❌ No se pudo descargar update.sh\n"
-        bot_retorno+="$LINE\n"
+update() {
+    local request_file="${TELEBOTGEN_UPDATE_REQUEST_FILE:-/etc/ADM-db/update.request}"
+    if ! role_is_admin "$actor_id"; then
+        bot_retorno='<b>Solo el administrador puede actualizar TeleBotGen.</b>'
         msj_fun
-        return 1
+        return
     fi
 
-    chmod +x "$HOME/update.sh"
+    if [[ -e "$request_file" ]]; then
+        bot_retorno='<b>Ya existe una actualización pendiente o en curso.</b>'
+        msj_fun
+        return
+    fi
 
-    # BUG FIX: antes usaba screen + killall BotGen.sh, que no mataba
-    # el proceso real (corre como 'bash' bajo systemd) y terminaba
-    # duplicando el bot. update.sh ahora reinicia el servicio el mismo.
-    nohup "$HOME/update.sh" >/dev/null 2>&1 &
+    if printf 'requested_by=%s\nrequested_at=%s\n' \
+        "$actor_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$request_file"; then
+        chmod 600 "$request_file" 2>/dev/null || true
+        bot_retorno='<b>Actualización solicitada.</b>
+
+El servicio seguro de actualización la procesará y enviará el resultado por privado.'
+    else
+        bot_retorno='<b>No se pudo registrar la solicitud de actualización.</b>'
+    fi
+    msj_fun
 }

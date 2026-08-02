@@ -1,0 +1,150 @@
+name: TeleBotGen CI
+
+on:
+  push:
+    branches: ['feat/**', 'fix/**', 'main']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: sudo apt-get update -y && sudo apt-get install -y shellcheck jq openssl
+
+      - name: Validate active Bash files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          files=(
+            confbot.sh update.sh deploy.sh
+            tests/test-role-license-flow.sh
+            tests/test-shellbot-runtime.sh
+            tests/test-update-request.sh
+          )
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            files+=("sources/$item")
+          done < sources/lista-bot
+          for file in "${files[@]}"; do bash -n "$file"; done
+
+      - name: Validate ShellBot runtime compatibility
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash tests/test-shellbot-runtime.sh
+          env -u _SHELLBOT_SH_ bash -c '
+            set +e
+            set +u
+            set -o pipefail
+            source ./ShellBot.sh
+            declare -F ShellBot.init >/dev/null
+          '
+
+      - name: Run ShellCheck errors
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          files=(
+            confbot.sh update.sh deploy.sh
+            tests/test-role-license-flow.sh
+            tests/test-shellbot-runtime.sh
+            tests/test-update-request.sh
+          )
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            files+=("sources/$item")
+          done < sources/lista-bot
+          shellcheck --severity=error -x --format=gcc "${files[@]}" 2>&1 | tee shellcheck.log
+
+      - name: Test role, license and update flows
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash tests/test-role-license-flow.sh
+          bash tests/test-update-request.sh
+
+      - name: Enforce production license architecture
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          active_sources=()
+          while IFS= read -r item; do
+            [[ -n "$item" ]] || continue
+            active_sources+=("sources/$item")
+          done < sources/lista-bot
+
+          ! grep -REn 'HexGen/|HEXGEN_PORT|KEY_ROOT=.*/http-shell|localhost:8888|:8888/' "${active_sources[@]}"
+          ! grep -En 'ExecStart=.*hexgen-http|enable .*hexgen-http|restart .*hexgen-http' confbot.sh update.sh deploy.sh
+          ! grep -REn '/[Kk]eygen[^\n]*(minutos|telegram_id|usuario)' sources README.md
+          ! grep -REn 'resolve_key_target|comando\[2\].*owner|reply_user_id.*key' sources/gerar_key
+
+          grep -Fq 'http://127.0.0.1:8080' sources/license_api
+          grep -Fq 'owner_telegram_id=' sources/license_api
+          grep -Fq 'active_only=true' sources/license_api
+          grep -Fq -- '--config "$config"' sources/license_api
+          ! grep -Fq 'license_api_all)' sources/license_api
+          grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' sources/license_api
+          grep -Fq 'Allowed-Groups' sources/roles
+          grep -Fq 'Key-Duration-Minutes' sources/roles
+          grep -Fq 'owner_id="$actor_id"' sources/gerar_key
+          grep -Fq 'allowed-group-member' sources/gerar_key
+          grep -Fq 'keygen_context_allowed' sources/gerar_key
+          grep -Fq 'Todos los miembros pueden generar su propia key' sources/menu
+          grep -Fq '/Setkeytime minutos' sources/access
+          grep -Fq '@Gh0stDeveloper' sources/menu
+          grep -Fq '@Jotchua_DevzZ' sources/menu
+
+      - name: Validate transactional and privilege-separated deployment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -Fq '/var/backups/telebotgen' deploy.sh
+          grep -Fq 'restore_backup' deploy.sh
+          grep -Fq 'flock -n 9' deploy.sh
+          grep -Fq 'TELEBOTGEN_SOURCE_ROOT' deploy.sh
+          grep -Fq 'systemctl is-active --quiet telebotgen.service' deploy.sh
+          grep -Fq 'SERVICE_USER=telebotgen' deploy.sh
+          grep -Fq 'User=$SERVICE_USER' deploy.sh
+          grep -Fq 'SupplementaryGroups=$LICENSE_GROUP' deploy.sh
+          grep -Fq 'CapabilityBoundingSet=' deploy.sh
+          grep -Fq 'ProtectSystem=strict' deploy.sh
+          grep -Fq 'telebotgen-update.path' deploy.sh
+          grep -Fq 'PathExists=$STATE_DIR/update.request' deploy.sh
+          grep -Fq 'ExecStartPre=/usr/bin/rm -f $STATE_DIR/update.request' deploy.sh
+          grep -Fq 'install -m 755 "$staging/ShellBot.sh"' deploy.sh
+
+          grep -Fq 'CONFIG_DIR="${TELEBOTGEN_CONFIG_DIR:-/etc/telebotgen}"' deploy.sh
+          grep -Fq 'DEPLOY_ENV="$CONFIG_DIR/deploy.env"' deploy.sh
+          grep -Fq 'install -o root -g root -m 600 "$staging/deploy.env" "$DEPLOY_ENV"' deploy.sh
+          grep -Fq 'rm -f "$STATE_DIR/repository.env"' deploy.sh
+          grep -Fq 'ReadOnlyPaths=/bin/ShellBot.sh /etc/ghostdeveloper-license $CONFIG_DIR' deploy.sh
+
+          grep -Fq 'update.request' sources/update
+          ! grep -Fq 'systemd-run' sources/update
+          grep -Fq 'DEPLOY_ENV="${TELEBOTGEN_DEPLOY_ENV:-/etc/telebotgen/deploy.env}"' update.sh
+          grep -Fq '[[ "$owner" == root && "$mode" == 600 ]]' update.sh
+          ! grep -Fq '$STATE_DIR/repository.env' update.sh
+          grep -Fq 'bash "$installer"' update.sh
+          grep -Fq -- '--config "$config"' update.sh
+          ! grep -Eq 'api.telegram.org/bot\$\{?token' update.sh
+          grep -Fxq 'V3.1.0-rc.1' Vercion
+
+      - name: Upload ShellCheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telebotgen-shellcheck-${{ github.run_id }}
+          path: shellcheck.log
+          if-no-files-found: error
+          retention-days: 7
