@@ -1,0 +1,206 @@
+name: TeleBotGen systemd integration
+
+on:
+  push:
+    branches: ['feat/**', 'fix/**', 'main']
+    paths:
+      - deploy.sh
+      - update.sh
+      - ShellBot.sh
+      - Vercion
+      - sources/**
+      - .github/workflows/systemd-integration.yml
+  pull_request:
+    paths:
+      - deploy.sh
+      - update.sh
+      - ShellBot.sh
+      - Vercion
+      - sources/**
+      - .github/workflows/systemd-integration.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  systemd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Debian 12 systemd image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > /tmp/Dockerfile.telebotgen <<'EOF'
+          FROM debian:12
+          ENV container=docker
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends \
+                 systemd systemd-sysv dbus ca-certificates curl jq openssl \
+                 iproute2 procps util-linux python3 passwd \
+              && apt-get clean \
+              && rm -rf /var/lib/apt/lists/*
+          STOPSIGNAL SIGRTMIN+3
+          CMD ["/sbin/init"]
+          EOF
+          docker build -t telebotgen-systemd -f /tmp/Dockerfile.telebotgen .
+
+      - name: Start isolated systemd environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d \
+            --name telebotgen-systemd \
+            --hostname telebotgen-systemd \
+            --privileged \
+            --cgroupns=host \
+            --tmpfs /run \
+            --tmpfs /run/lock \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v "$PWD:/workspace:ro" \
+            telebotgen-systemd
+          for _ in $(seq 1 60); do
+            state="$(docker exec telebotgen-systemd systemctl is-system-running 2>/dev/null || true)"
+            [[ "$state" == running || "$state" == degraded ]] && exit 0
+            sleep 1
+          done
+          docker exec telebotgen-systemd systemctl --failed --no-pager
+          exit 1
+
+      - name: Prepare mock API and deployment source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec telebotgen-systemd bash -lc '
+            set -Eeuo pipefail
+            cp -a /workspace /tmp/telebotgen-source
+            cat > /tmp/telebotgen-source/sources/BotGen.sh <<"EOF"
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          # Contract marker: ShellBot.getUpdates --limit 100
+          while true; do sleep 60; done
+          EOF
+            cat > /tmp/telebotgen-source/update.sh <<"EOF"
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          id -u > /tmp/telebotgen-update-uid
+          touch /tmp/telebotgen-update-ran
+          EOF
+            chmod 700 /tmp/telebotgen-source/sources/BotGen.sh /tmp/telebotgen-source/update.sh
+
+            getent group ghostlicense >/dev/null || groupadd --system ghostlicense
+            install -d -o root -g ghostlicense -m 750 /etc/ghostdeveloper-license/secrets
+            printf "test-admin-token\n" > /etc/ghostdeveloper-license/secrets/admin-token
+            chown root:ghostlicense /etc/ghostdeveloper-license/secrets/admin-token
+            chmod 640 /etc/ghostdeveloper-license/secrets/admin-token
+
+            cat > /usr/local/bin/mock-license-health.py <<"PY"
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = b"{\"status\":\"online\",\"service\":\"mock\",\"version\":\"test\"}"
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def log_message(self, *args):
+                  pass
+          HTTPServer(("127.0.0.1", 8080), Handler).serve_forever()
+          PY
+            cat > /etc/systemd/system/mock-license-health.service <<"EOF"
+          [Unit]
+          Description=Mock Ghost license health
+          [Service]
+          ExecStart=/usr/bin/python3 /usr/local/bin/mock-license-health.py
+          Restart=on-failure
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+            systemctl daemon-reload
+            systemctl enable --now mock-license-health.service
+
+            install -d -m 700 /etc/ADM-db
+            printf "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi\n" > /etc/ADM-db/token
+            printf "100\n" > /etc/ADM-db/Admin-ID
+            chmod 600 /etc/ADM-db/token /etc/ADM-db/Admin-ID
+          '
+
+      - name: Deploy TeleBotGen transactionally
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec telebotgen-systemd bash -lc '
+            set -Eeuo pipefail
+            TELEBOTGEN_SOURCE_ROOT=/tmp/telebotgen-source \
+            TELEBOTGEN_REPOSITORY=Gh0stDeveloper/TeleBotGen \
+            TELEBOTGEN_REF=integration-test \
+              bash /tmp/telebotgen-source/deploy.sh
+          '
+
+      - name: Validate privilege separation and hardening
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          inside() { docker exec telebotgen-systemd bash -lc "$1"; }
+          docker exec telebotgen-systemd systemctl is-active --quiet telebotgen.service
+          docker exec telebotgen-systemd systemctl is-active --quiet telebotgen-update.path
+          [[ "$(inside 'systemctl show telebotgen.service -p User --value')" == telebotgen ]]
+          [[ "$(inside 'systemctl show telebotgen.service -p NoNewPrivileges --value')" == yes ]]
+          [[ "$(inside 'systemctl show telebotgen.service -p ProtectSystem --value')" == strict ]]
+          inside "id -nG telebotgen | tr ' ' '\n' | grep -Fxq ghostlicense"
+          [[ "$(inside "stat -c '%U:%G:%a' /etc/ADM-db/token")" == telebotgen:telebotgen:600 ]]
+          [[ "$(inside "stat -c '%U:%G:%a' /bin/ShellBot.sh")" == root:root:755 ]]
+          inside "runuser -u telebotgen -- test -r /etc/ghostdeveloper-license/secrets/admin-token"
+          inside "runuser -u telebotgen -- test -w /etc/ADM-db"
+
+      - name: Test fixed root updater trigger
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec --user telebotgen telebotgen-systemd bash -lc '
+            printf "requested_by=100\nrequested_at=integration\n" > /etc/ADM-db/update.request
+          '
+          for _ in $(seq 1 30); do
+            docker exec telebotgen-systemd test -e /tmp/telebotgen-update-ran && break
+            sleep 1
+          done
+          docker exec telebotgen-systemd test -e /tmp/telebotgen-update-ran
+          [[ "$(docker exec telebotgen-systemd cat /tmp/telebotgen-update-uid)" == 0 ]]
+          ! docker exec telebotgen-systemd test -e /etc/ADM-db/update.request
+          docker exec telebotgen-systemd systemctl is-active --quiet telebotgen.service
+
+      - name: Collect diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          docker exec telebotgen-systemd bash -lc '
+            {
+              echo "=== units ==="
+              systemctl status telebotgen.service telebotgen-update.path telebotgen-update.service --no-pager
+              echo
+              echo "=== security ==="
+              systemd-analyze security telebotgen.service --no-pager || true
+              echo
+              echo "=== logs ==="
+              journalctl -u telebotgen.service -u telebotgen-update.service -n 150 --no-pager
+            } > /tmp/telebotgen-systemd-diagnostics.txt 2>&1
+          ' || true
+          docker cp telebotgen-systemd:/tmp/telebotgen-systemd-diagnostics.txt /tmp/telebotgen-systemd-diagnostics.txt 2>/dev/null || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telebotgen-systemd-${{ github.run_id }}
+          path: /tmp/telebotgen-systemd-diagnostics.txt
+          if-no-files-found: warn
+          retention-days: 7
