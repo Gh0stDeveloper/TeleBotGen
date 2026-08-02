@@ -3,16 +3,36 @@ set -Eeuo pipefail
 umask 077
 
 STATE_DIR="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
-REPOSITORY="${TELEBOTGEN_REPOSITORY:-Gh0stDeveloper/TeleBotGen}"
-REF="${TELEBOTGEN_REF:-feat/hextunnel-license-integration}"
+DEPLOY_ENV="${TELEBOTGEN_DEPLOY_ENV:-/etc/telebotgen/deploy.env}"
 
-if [[ -r "$STATE_DIR/repository.env" ]]; then
-    # shellcheck disable=SC1091
-    source "$STATE_DIR/repository.env"
-    REPOSITORY="${TELEBOTGEN_REPOSITORY:-$REPOSITORY}"
-    REF="${TELEBOTGEN_REF:-$REF}"
-fi
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || {
+    echo 'TeleBotGen update must run as root.' >&2
+    exit 1
+}
+[[ -f "$DEPLOY_ENV" ]] || {
+    echo "ERROR: falta la configuración protegida $DEPLOY_ENV." >&2
+    exit 1
+}
+owner="$(stat -c '%U' "$DEPLOY_ENV")"
+mode="$(stat -c '%a' "$DEPLOY_ENV")"
+[[ "$owner" == root && "$mode" == 600 ]] || {
+    echo "ERROR: $DEPLOY_ENV debe pertenecer a root y usar modo 600." >&2
+    exit 1
+}
+# shellcheck disable=SC1090
+source "$DEPLOY_ENV"
+REPOSITORY="${TELEBOTGEN_REPOSITORY:-}"
+REF="${TELEBOTGEN_REF:-}"
+[[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    echo 'ERROR: repositorio protegido inválido.' >&2
+    exit 1
+}
+[[ "$REF" =~ ^[A-Za-z0-9._/-]+$ && "$REF" != /* && "$REF" != *..* ]] || {
+    echo 'ERROR: referencia protegida inválida.' >&2
+    exit 1
+}
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
+unset owner mode
 
 notify_admin() {
     local message="$1" token admin_id config response
@@ -31,11 +51,6 @@ notify_admin() {
         --data-urlencode "text=$message" \
         -o "$response" >/dev/null 2>&1 || true
     rm -f "$config" "$response"
-}
-
-[[ "${EUID:-$(id -u)}" -eq 0 ]] || {
-    echo 'TeleBotGen update must run as root.' >&2
-    exit 1
 }
 
 installer="$(mktemp /tmp/telebotgen-deploy.XXXXXX)"
