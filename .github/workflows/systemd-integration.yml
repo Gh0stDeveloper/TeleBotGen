@@ -145,7 +145,7 @@ jobs:
               bash /tmp/telebotgen-source/deploy.sh
           '
 
-      - name: Validate privilege separation and hardening
+      - name: Validate privilege separation and protected provenance
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -158,8 +158,13 @@ jobs:
           inside "id -nG telebotgen | tr ' ' '\n' | grep -Fxq ghostlicense"
           [[ "$(inside "stat -c '%U:%G:%a' /etc/ADM-db/token")" == telebotgen:telebotgen:600 ]]
           [[ "$(inside "stat -c '%U:%G:%a' /bin/ShellBot.sh")" == root:root:755 ]]
+          [[ "$(inside "stat -c '%U:%G:%a' /etc/telebotgen/deploy.env")" == root:root:600 ]]
+          inside "grep -Fxq 'TELEBOTGEN_REPOSITORY=Gh0stDeveloper/TeleBotGen' /etc/telebotgen/deploy.env"
+          inside "grep -Fxq 'TELEBOTGEN_REF=integration-test' /etc/telebotgen/deploy.env"
           inside "runuser -u telebotgen -- test -r /etc/ghostdeveloper-license/secrets/admin-token"
           inside "runuser -u telebotgen -- test -w /etc/ADM-db"
+          inside "runuser -u telebotgen -- test ! -w /etc/telebotgen/deploy.env"
+          inside "test ! -e /etc/ADM-db/repository.env"
 
       - name: Test fixed root updater trigger
         shell: bash
@@ -189,6 +194,10 @@ jobs:
               echo
               echo "=== security ==="
               systemd-analyze security telebotgen.service --no-pager || true
+              echo
+              echo "=== protected provenance ==="
+              stat -c "%U:%G:%a %n" /etc/telebotgen/deploy.env
+              cat /etc/telebotgen/deploy.env
               echo
               echo "=== logs ==="
               journalctl -u telebotgen.service -u telebotgen-update.service -n 150 --no-pager
