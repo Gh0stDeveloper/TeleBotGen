@@ -141,8 +141,8 @@ Wants=network-online.target ghost-license-api.service
 Type=oneshot
 User=root
 UMask=0077
+ExecStartPre=/usr/bin/rm -f $STATE_DIR/update.request
 ExecStart=/usr/local/bin/telebotgen-update
-ExecStartPost=/usr/bin/rm -f $STATE_DIR/update.request
 TimeoutStartSec=15min
 EOF
 
@@ -168,7 +168,7 @@ EOF
 }
 
 restore_backup() {
-    local backup="$1" destination source_name mapping
+    local backup="$1" destination source_name mapping rest mode
     log "Restaurando $backup"
     systemctl stop telebotgen.service telebotgen-update.path >/dev/null 2>&1 || true
     rm -rf "$SOURCES_DIR"
