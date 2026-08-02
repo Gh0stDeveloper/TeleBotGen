@@ -121,9 +121,20 @@ jobs:
           grep -Fq 'ProtectSystem=strict' deploy.sh
           grep -Fq 'telebotgen-update.path' deploy.sh
           grep -Fq 'PathExists=$STATE_DIR/update.request' deploy.sh
+          grep -Fq 'ExecStartPre=/usr/bin/rm -f $STATE_DIR/update.request' deploy.sh
           grep -Fq 'install -m 755 "$staging/ShellBot.sh"' deploy.sh
+
+          grep -Fq 'CONFIG_DIR="${TELEBOTGEN_CONFIG_DIR:-/etc/telebotgen}"' deploy.sh
+          grep -Fq 'DEPLOY_ENV="$CONFIG_DIR/deploy.env"' deploy.sh
+          grep -Fq 'install -o root -g root -m 600 "$staging/deploy.env" "$DEPLOY_ENV"' deploy.sh
+          grep -Fq 'rm -f "$STATE_DIR/repository.env"' deploy.sh
+          grep -Fq 'ReadOnlyPaths=/bin/ShellBot.sh /etc/ghostdeveloper-license $CONFIG_DIR' deploy.sh
+
           grep -Fq 'update.request' sources/update
           ! grep -Fq 'systemd-run' sources/update
+          grep -Fq 'DEPLOY_ENV="${TELEBOTGEN_DEPLOY_ENV:-/etc/telebotgen/deploy.env}"' update.sh
+          grep -Fq '[[ "$owner" == root && "$mode" == 600 ]]' update.sh
+          ! grep -Fq '$STATE_DIR/repository.env' update.sh
           grep -Fq 'bash "$installer"' update.sh
           grep -Fq -- '--config "$config"' update.sh
           ! grep -Eq 'api.telegram.org/bot\$\{?token' update.sh
