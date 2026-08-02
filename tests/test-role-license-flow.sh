@@ -43,47 +43,27 @@ valid_key_duration 525600
 ! valid_key_duration 525601
 ! valid_key_duration texto
 
-license_api_all() {
-    cat <<'JSON'
-{
-  "items": [
-    {
-      "id": "old",
-      "key_prefix": "HT-OLD",
-      "product": "hextunnel",
-      "owner_telegram_id": "300",
-      "owner_username": "client",
-      "status": "expired",
-      "created_at": "2025-01-01T00:00:00Z",
-      "expires_at": "2025-01-02T00:00:00Z",
-      "activation_limit": 1,
-      "activation_count": 1,
-      "bound_ip": null,
-      "activated_at": null,
-      "revoked_at": null,
-      "revoke_reason": null,
-      "metadata": {}
-    },
-    {
-      "id": "active",
-      "key_prefix": "HT-ACTIVE",
-      "product": "hextunnel",
-      "owner_telegram_id": "300",
-      "owner_username": "client",
-      "status": "active",
-      "created_at": "2026-01-01T00:00:00Z",
-      "expires_at": "2099-01-01T00:00:00Z",
-      "activation_limit": 1,
-      "activation_count": 0,
-      "bound_ip": null,
-      "activated_at": null,
-      "revoked_at": null,
-      "revoke_reason": null,
-      "metadata": {}
-    }
-  ]
-}
+# La resolución de rol debe consultar por dueño en el servidor, no descargar
+# las últimas 200 licencias globales.
+license_api_request() {
+    local method="$1" path="$2"
+    [[ "$method" == GET ]]
+    printf '%s\n' "$path" >> "$TMP/api-paths"
+    case "$path" in
+        *owner_telegram_id=300*active_only=true*)
+            cat <<'JSON'
+{"items":[{"id":"active","key_prefix":"HT-ACTIVE","product":"hextunnel","owner_telegram_id":"300","owner_username":"client","status":"active","created_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","activation_limit":1,"activation_count":0,"bound_ip":null,"activated_at":null,"revoked_at":null,"revoke_reason":null,"metadata":{}}],"total":1,"limit":1,"offset":0}
 JSON
+            ;;
+        *owner_telegram_id=300*)
+            cat <<'JSON'
+{"items":[{"id":"active","key_prefix":"HT-ACTIVE","product":"hextunnel","owner_telegram_id":"300","owner_username":"client","status":"active","created_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","activation_limit":1,"activation_count":0,"bound_ip":null,"activated_at":null,"revoked_at":null,"revoke_reason":null,"metadata":{}},{"id":"old","key_prefix":"HT-OLD","product":"hextunnel","owner_telegram_id":"300","owner_username":"client","status":"expired","created_at":"2025-01-01T00:00:00Z","expires_at":"2025-01-02T00:00:00Z","activation_limit":1,"activation_count":1,"bound_ip":null,"activated_at":null,"revoked_at":null,"revoke_reason":null,"metadata":{}}],"total":2,"limit":200,"offset":0}
+JSON
+            ;;
+        *)
+            printf '{"items":[],"total":0,"limit":1,"offset":0}\n'
+            ;;
+    esac
 }
 
 actor_resolve_role 100
@@ -95,6 +75,8 @@ actor_resolve_role 300
 [[ "$(jq -r .id <<< "$actor_license_json")" == active ]]
 actor_resolve_role 400
 [[ "$actor_role" == public ]]
+grep -Fq 'owner_telegram_id=300&active_only=true&limit=1' "$TMP/api-paths"
+! grep -Fq '/api/v1/admin/licenses?product=hextunnel&limit=200&offset=0' "$TMP/api-paths"
 
 [[ "$(license_human_duration 90060)" == '1 día(s), 1 hora(s) y 1 minuto(s)' ]]
 command_text="$(hextunnel_install_command)"
@@ -103,33 +85,19 @@ grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' <<< "$command_text"
 [[ "$(hextunnel_upgrade_command)" == 'sudo hextunnel-upgrade' ]]
 
 # Flujo real de /Keygen dentro de un grupo permitido: el dueño siempre es el remitente.
-license_api_active_for_owner() {
-    return 0
-}
-
+license_api_active_for_owner() { return 0; }
 license_api_create() {
     printf '%s\n' "$@" > "$TMP/create-args"
     cat <<'JSON'
-{
-  "id": "11111111-2222-3333-4444-555555555555",
-  "key": "HT-SELF-SERVICE-TEST",
-  "expires_at": "2099-01-01T00:00:00Z"
-}
+{"id":"11111111-2222-3333-4444-555555555555","key":"HT-SELF-SERVICE-TEST","expires_at":"2099-01-01T00:00:00Z"}
 JSON
 }
-
-license_api_revoke() {
-    printf '%s\n' "$@" > "$TMP/revoke-args"
-}
-
+license_api_revoke() { printf '%s\n' "$@" > "$TMP/revoke-args"; }
 send_html() {
     local chat_id="$1" text="$2"
     printf '%s|%s\n' "$chat_id" "$text" >> "$TMP/messages"
 }
-
-msj_fun() {
-    printf '%b' "$bot_retorno" > "$TMP/private-message"
-}
+msj_fun() { printf '%b' "$bot_retorno" > "$TMP/private-message"; }
 
 LINE='============================'
 current_chat_type='group'
@@ -165,15 +133,9 @@ grep -Fq 'Usa solamente <code>/Keygen</code>' "$TMP/private-message"
 # Una cuenta con licencia activa no puede generar una segunda key.
 license_api_active_for_owner() {
     cat <<'JSON'
-{
-  "id": "existing-license",
-  "status": "active",
-  "expires_at": "2099-01-01T00:00:00Z",
-  "bound_ip": null
-}
+{"id":"existing-license","status":"active","expires_at":"2099-01-01T00:00:00Z","bound_ip":null}
 JSON
 }
-
 rm -f "$TMP/create-args" "$TMP/private-message"
 comando=(/Keygen)
 gerar_key
