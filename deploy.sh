@@ -84,8 +84,16 @@ fetch_file() {
     [[ -s "$destination" ]] || fail "archivo vacío: $relative"
 }
 
+remove_legacy_runtime_fix() {
+    rm -f /etc/systemd/system/telebotgen.service.d/10-runtime-fix.conf
+    rmdir --ignore-fail-on-non-empty /etc/systemd/system/telebotgen.service.d \
+        2>/dev/null || true
+    rm -f /usr/local/sbin/telebotgen-runtime-fix
+}
+
 write_units() {
     rm -f "$STATE_DIR/update.request"
+    remove_legacy_runtime_fix
 
     cat > /etc/systemd/system/telebotgen.service <<EOF
 [Unit]
