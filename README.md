@@ -10,6 +10,9 @@ Versión: `V3.1.0-rc.1`
 - Descarga y validación completa antes de detener el bot.
 - Respaldo en `/var/backups/telebotgen`.
 - Rollback automático cuando el servicio no vuelve a quedar activo.
+- Ejecución del bot como usuario de sistema `telebotgen`, no como root.
+- Actualización root mediante una unidad fija activada por `telebotgen-update.path`.
+- Procedencia de actualización protegida en `/etc/telebotgen/deploy.env`, propiedad de root y modo `600`.
 - Token de Telegram y token administrativo ocultos de los argumentos de `curl`.
 - Consulta de licencias por `owner_telegram_id` directamente en la API.
 - Prevención de duplicados sin depender de una lista global limitada a 200 registros.
@@ -31,6 +34,34 @@ Usuario de Telegram
 ```
 
 El bot y la API se ejecutan en la misma VPS. Los endpoints administrativos no se publican y el listener heredado `8888` permanece desactivado.
+
+## Separación de privilegios
+
+`telebotgen.service` usa:
+
+```text
+User=telebotgen
+SupplementaryGroups=ghostlicense
+NoNewPrivileges=true
+ProtectSystem=strict
+CapabilityBoundingSet=
+```
+
+El usuario del bot puede modificar únicamente su estado en `/etc/ADM-db`. Puede leer el token administrativo mediante el grupo `ghostlicense`, pero no puede modificarlo.
+
+El comando `/update` no ejecuta `systemctl`, `systemd-run` ni comandos root. Solo crea:
+
+```text
+/etc/ADM-db/update.request
+```
+
+`telebotgen-update.path` detecta esa solicitud, la elimina antes de comenzar y ejecuta un actualizador root fijo. El repositorio y la referencia autorizados se leen exclusivamente de:
+
+```text
+/etc/telebotgen/deploy.env
+```
+
+Ese archivo pertenece a root, usa modo `600` y no es escribible por el bot.
 
 ## Requisitos
 
@@ -98,7 +129,7 @@ La API se consulta con:
 owner_telegram_id=<ID>&active_only=true
 ```
 
-Esto evita el error anterior de descargar solo las últimas 200 licencias globales, que podía omitir una licencia activa antigua y permitir una duplicada.
+La API también protege la creación dentro de una transacción. Aunque dos solicitudes `/Keygen` lleguen simultáneamente, solo una licencia activa puede crearse para el mismo Telegram ID y producto.
 
 ## Duración global
 
@@ -165,24 +196,30 @@ El usuario debe abrir primero el bot en privado y ejecutar `/start`.
 
 ## Archivos persistentes
 
+Estado modificable por el bot:
+
 ```text
 /etc/ADM-db/token
 /etc/ADM-db/Admin-ID
 /etc/ADM-db/Reseller-ID
 /etc/ADM-db/Allowed-Groups
 /etc/ADM-db/Key-Duration-Minutes
-/etc/ADM-db/repository.env
 ```
 
-Los archivos privados usan permisos `600` y el directorio de estado usa `700`.
+Configuración root de despliegue:
+
+```text
+/etc/telebotgen/deploy.env
+```
 
 ## Diagnóstico
 
 ```bash
-systemctl status telebotgen.service ghost-license-api.service --no-pager
-journalctl -u telebotgen.service -n 100 --no-pager
+systemctl status telebotgen.service telebotgen-update.path ghost-license-api.service --no-pager
+journalctl -u telebotgen.service -u telebotgen-update.service -n 100 --no-pager
 curl -sS http://127.0.0.1:8080/health | jq
 sudo /usr/local/bin/telebotgen-deploy
+stat -c '%U:%G:%a %n' /etc/telebotgen/deploy.env
 ```
 
 ## Desarrolladores
