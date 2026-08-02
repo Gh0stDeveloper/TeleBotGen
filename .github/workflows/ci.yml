@@ -26,14 +26,17 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          files=(confbot.sh update.sh deploy.sh tests/test-role-license-flow.sh tests/test-shellbot-runtime.sh)
+          files=(
+            confbot.sh update.sh deploy.sh
+            tests/test-role-license-flow.sh
+            tests/test-shellbot-runtime.sh
+            tests/test-update-request.sh
+          )
           while IFS= read -r item; do
             [[ -n "$item" ]] || continue
             files+=("sources/$item")
           done < sources/lista-bot
-          for file in "${files[@]}"; do
-            bash -n "$file"
-          done
+          for file in "${files[@]}"; do bash -n "$file"; done
 
       - name: Validate ShellBot runtime compatibility
         shell: bash
@@ -52,15 +55,24 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          files=(confbot.sh update.sh deploy.sh tests/test-role-license-flow.sh tests/test-shellbot-runtime.sh)
+          files=(
+            confbot.sh update.sh deploy.sh
+            tests/test-role-license-flow.sh
+            tests/test-shellbot-runtime.sh
+            tests/test-update-request.sh
+          )
           while IFS= read -r item; do
             [[ -n "$item" ]] || continue
             files+=("sources/$item")
           done < sources/lista-bot
           shellcheck --severity=error -x --format=gcc "${files[@]}" 2>&1 | tee shellcheck.log
 
-      - name: Test role and license flow
-        run: bash tests/test-role-license-flow.sh
+      - name: Test role, license and update flows
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash tests/test-role-license-flow.sh
+          bash tests/test-update-request.sh
 
       - name: Enforce production license architecture
         shell: bash
@@ -93,7 +105,7 @@ jobs:
           grep -Fq '@Gh0stDeveloper' sources/menu
           grep -Fq '@Jotchua_DevzZ' sources/menu
 
-      - name: Validate transactional deployment
+      - name: Validate transactional and privilege-separated deployment
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -102,6 +114,16 @@ jobs:
           grep -Fq 'flock -n 9' deploy.sh
           grep -Fq 'TELEBOTGEN_SOURCE_ROOT' deploy.sh
           grep -Fq 'systemctl is-active --quiet telebotgen.service' deploy.sh
+          grep -Fq 'SERVICE_USER=telebotgen' deploy.sh
+          grep -Fq 'User=$SERVICE_USER' deploy.sh
+          grep -Fq 'SupplementaryGroups=$LICENSE_GROUP' deploy.sh
+          grep -Fq 'CapabilityBoundingSet=' deploy.sh
+          grep -Fq 'ProtectSystem=strict' deploy.sh
+          grep -Fq 'telebotgen-update.path' deploy.sh
+          grep -Fq 'PathExists=$STATE_DIR/update.request' deploy.sh
+          grep -Fq 'install -m 755 "$staging/ShellBot.sh"' deploy.sh
+          grep -Fq 'update.request' sources/update
+          ! grep -Fq 'systemd-run' sources/update
           grep -Fq 'bash "$installer"' update.sh
           grep -Fq -- '--config "$config"' update.sh
           ! grep -Eq 'api.telegram.org/bot\$\{?token' update.sh
