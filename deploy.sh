@@ -4,6 +4,8 @@ umask 077
 
 STATE_DIR="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
 SOURCES_DIR="$STATE_DIR/sources"
+CONFIG_DIR="${TELEBOTGEN_CONFIG_DIR:-/etc/telebotgen}"
+DEPLOY_ENV="$CONFIG_DIR/deploy.env"
 BACKUP_ROOT="${TELEBOTGEN_BACKUP_ROOT:-/var/backups/telebotgen}"
 REPOSITORY="${TELEBOTGEN_REPOSITORY:-Gh0stDeveloper/TeleBotGen}"
 REF="${TELEBOTGEN_REF:-feat/hextunnel-license-integration}"
@@ -63,12 +65,6 @@ prepare_state() {
     fi
     chown "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR/Key-Duration-Minutes"
     chmod 600 "$STATE_DIR/Key-Duration-Minutes"
-    cat > "$STATE_DIR/repository.env" <<EOF
-TELEBOTGEN_REPOSITORY=$(printf '%q' "$REPOSITORY")
-TELEBOTGEN_REF=$(printf '%q' "$REF")
-EOF
-    chown "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR/repository.env"
-    chmod 600 "$STATE_DIR/repository.env"
     if [[ -e "$STATE_DIR/token" ]]; then
         chown "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR/token"
         chmod 600 "$STATE_DIR/token"
@@ -124,7 +120,7 @@ SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadOnlyPaths=/bin/ShellBot.sh /etc/ghostdeveloper-license
+ReadOnlyPaths=/bin/ShellBot.sh /etc/ghostdeveloper-license $CONFIG_DIR
 ReadWritePaths=$STATE_DIR
 
 [Install]
@@ -183,6 +179,7 @@ restore_backup() {
         '/bin/ShellBot.sh:bin-ShellBot.sh:755' \
         '/usr/local/bin/telebotgen-update:bin-telebotgen-update:700' \
         '/usr/local/bin/telebotgen-deploy:bin-telebotgen-deploy:700' \
+        '/etc/telebotgen/deploy.env:deploy-env:600' \
         '/etc/systemd/system/telebotgen.service:service:644' \
         '/etc/systemd/system/telebotgen-update.service:update-service:644' \
         '/etc/systemd/system/telebotgen-update.path:update-path:644'; do
@@ -192,6 +189,7 @@ restore_backup() {
         mode="${rest##*:}"
         [[ "$destination" == /* ]] || destination="$STATE_DIR/$destination"
         if [[ -f "$backup/$source_name" ]]; then
+            install -d -o root -g root -m 700 "$(dirname "$destination")"
             install -m "$mode" "$backup/$source_name" "$destination"
         else
             rm -f "$destination"
@@ -201,6 +199,7 @@ restore_backup() {
     chmod 700 "$STATE_DIR" "$SOURCES_DIR"
     find "$SOURCES_DIR" -type f -exec chmod 700 {} + 2>/dev/null || true
     chown root:root /bin/ShellBot.sh /usr/local/bin/telebotgen-update /usr/local/bin/telebotgen-deploy 2>/dev/null || true
+    [[ -f "$DEPLOY_ENV" ]] && { chown root:root "$DEPLOY_ENV"; chmod 600 "$DEPLOY_ENV"; }
     systemctl daemon-reload
     [[ -f /etc/systemd/system/telebotgen-update.path ]] \
         && systemctl enable --now telebotgen-update.path >/dev/null 2>&1 || true
@@ -246,6 +245,11 @@ main() {
     grep -Fq 'http://127.0.0.1:8080' "$staging/sources/license_api"
     grep -Fq 'update.request' "$staging/sources/update"
     ! grep -Fq 'systemd-run' "$staging/sources/update"
+    cat > "$staging/deploy.env" <<EOF
+TELEBOTGEN_REPOSITORY=$(printf '%q' "$REPOSITORY")
+TELEBOTGEN_REF=$(printf '%q' "$REF")
+EOF
+    chmod 600 "$staging/deploy.env"
 
     timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
     backup="$BACKUP_ROOT/$timestamp"
@@ -256,6 +260,7 @@ main() {
     [[ -f /bin/ShellBot.sh ]] && cp -a /bin/ShellBot.sh "$backup/bin-ShellBot.sh"
     [[ -f /usr/local/bin/telebotgen-update ]] && cp -a /usr/local/bin/telebotgen-update "$backup/bin-telebotgen-update"
     [[ -f /usr/local/bin/telebotgen-deploy ]] && cp -a /usr/local/bin/telebotgen-deploy "$backup/bin-telebotgen-deploy"
+    [[ -f "$DEPLOY_ENV" ]] && cp -a "$DEPLOY_ENV" "$backup/deploy-env"
     [[ -f /etc/systemd/system/telebotgen.service ]] && cp -a /etc/systemd/system/telebotgen.service "$backup/service"
     [[ -f /etc/systemd/system/telebotgen-update.service ]] && cp -a /etc/systemd/system/telebotgen-update.service "$backup/update-service"
     [[ -f /etc/systemd/system/telebotgen-update.path ]] && cp -a /etc/systemd/system/telebotgen-update.path "$backup/update-path"
@@ -280,10 +285,13 @@ main() {
         install -m 700 "$staging/deploy.sh" /usr/local/bin/telebotgen-deploy.new
         mv -f /usr/local/bin/telebotgen-deploy.new /usr/local/bin/telebotgen-deploy
         install -m 600 "$staging/Vercion" "$STATE_DIR/vercion"
+        install -d -o root -g root -m 700 "$CONFIG_DIR"
+        install -o root -g root -m 600 "$staging/deploy.env" "$DEPLOY_ENV"
+        rm -f "$STATE_DIR/repository.env"
         chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"
         chmod 700 "$STATE_DIR" "$SOURCES_DIR" "$STATE_DIR/BotGen.sh"
         find "$SOURCES_DIR" -type f -exec chmod 700 {} +
-        chmod 600 "$STATE_DIR/vercion" "$STATE_DIR/repository.env" "$STATE_DIR/Key-Duration-Minutes"
+        chmod 600 "$STATE_DIR/vercion" "$STATE_DIR/Key-Duration-Minutes"
         [[ -f "$STATE_DIR/token" ]] && chmod 600 "$STATE_DIR/token"
         chown root:root /bin/ShellBot.sh /usr/local/bin/telebotgen-update /usr/local/bin/telebotgen-deploy
         write_units
