@@ -2,45 +2,85 @@
 
 TeleBotGen administra por Telegram las licencias comerciales de Hex Tunnel mediante `GhostDeveloperLicenseServer`.
 
-Versión: `3.0.0-rc.2`
+Versión: `V3.1.0-rc.1`
+
+## Cambios operativos de 3.1
+
+- Actualización transaccional mediante `deploy.sh`.
+- Descarga y validación completa antes de detener el bot.
+- Respaldo en `/var/backups/telebotgen`.
+- Rollback automático cuando el servicio no vuelve a quedar activo.
+- Token de Telegram y token administrativo ocultos de los argumentos de `curl`.
+- Consulta de licencias por `owner_telegram_id` directamente en la API.
+- Prevención de duplicados sin depender de una lista global limitada a 200 registros.
+- `confbot.sh install` permite despliegues no interactivos desde `ghostctl` y GitHub Actions.
 
 ## Arquitectura
 
 ```text
 Usuario de Telegram
   └── /Keygen
-       └── TeleBotGen obtiene message_from_id
+       └── TeleBotGen obtiene el ID real del remitente
             └── http://127.0.0.1:8080/api/v1/admin/licenses
                  └── GhostDeveloperLicenseServer
-                      ├── licencia vinculada al Telegram ID
+                      ├── licencia asociada al Telegram ID
                       ├── autorización HTTPS firmada
                       ├── activación vinculada a IP
                       ├── lease renovable
                       └── descarga privada de un solo uso
 ```
 
-El bot y la API se ejecutan en la misma VPS. Los endpoints administrativos no se publican en Internet y el antiguo servidor `HexGen` del puerto `8888` queda desactivado.
+El bot y la API se ejecutan en la misma VPS. Los endpoints administrativos no se publican y el listener heredado `8888` permanece desactivado.
 
 ## Requisitos
 
-- `GhostDeveloperLicenseServer` instalado y activo en `127.0.0.1:8080`.
+- GhostDeveloperLicenseServer activo en `127.0.0.1:8080`.
 - Token administrativo en `/etc/ghostdeveloper-license/secrets/admin-token`.
-- Debian 12, Ubuntu 22.04 o Ubuntu 24.04 para la VPS del bot.
-- Token de Telegram creado mediante `@BotFather`.
+- Debian 12, Ubuntu 22.04 o Ubuntu 24.04.
+- Token de Telegram generado mediante `@BotFather`.
 
-Hex Tunnel debe instalarse en una VPS distinta, dedicada y con arquitectura amd64/x86_64.
+La VPS cliente de Hex Tunnel debe ser distinta a la VPS del bot y puede usar AMD64 o ARM64.
 
-## Instalación de la rama RC
+## Instalación o actualización
+
+### Desde el repositorio
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/feat/hextunnel-license-integration/confbot.sh" \
-  -o /tmp/telebotgen-conf.sh && \
-TELEBOTGEN_REF=feat/hextunnel-license-integration sudo -E bash /tmp/telebotgen-conf.sh
+  -o /tmp/confbot.sh
+sudo TELEBOTGEN_REF=feat/hextunnel-license-integration bash /tmp/confbot.sh install
 ```
 
-El configurador permite guardar el token, definir el administrador inicial, autorizar grupos, configurar la duración global de las keys, instalar archivos, controlar el servicio y verificar la API.
+### Desde el servidor de operaciones
 
-## Generación automática de keys
+```bash
+sudo ghostctl deploy-bot
+```
+
+### Actualización instalada
+
+```bash
+sudo telebotgen-update
+```
+
+Los tres métodos usan el mismo despliegue transaccional.
+
+## Configuración interactiva
+
+```bash
+sudo bash confbot.sh menu
+```
+
+Permite configurar:
+
+- token del bot;
+- administrador;
+- revendedores;
+- grupos permitidos;
+- duración global de keys;
+- servicio, actualización y diagnósticos.
+
+## Generación de keys
 
 El usuario ejecuta únicamente:
 
@@ -48,104 +88,48 @@ El usuario ejecuta únicamente:
 /Keygen
 ```
 
-No debe proporcionar:
+TeleBotGen usa `message_from_id` o `callback_query_from_id`. La licencia siempre pertenece al usuario que realizó la acción; no se aceptan ID, username ni duración como argumentos.
 
-- Telegram ID;
-- nombre de usuario;
-- minutos;
-- duración;
-- ID de otro cliente.
+## Prevención de duplicados
 
-TeleBotGen usa `message_from_id` o `callback_query_from_id`, según el tipo de interacción. En un chat privado ese valor corresponde al usuario. Dentro de un grupo, se utiliza el ID del miembro que envió el comando y nunca el ID negativo del grupo.
+La API se consulta con:
 
-La licencia queda asociada a ese mismo usuario mediante `owner_telegram_id`.
+```text
+owner_telegram_id=<ID>&active_only=true
+```
+
+Esto evita el error anterior de descargar solo las últimas 200 licencias globales, que podía omitir una licencia activa antigua y permitir una duplicada.
 
 ## Duración global
-
-La duración de las nuevas keys la define exclusivamente el administrador. Se guarda en:
 
 ```text
 /etc/ADM-db/Key-Duration-Minutes
 ```
 
-Valor predeterminado:
+Valor predeterminado: `240` minutos.
 
-```text
-240 minutos
-```
-
-Desde Telegram:
+Comandos:
 
 ```text
 /Keytime
 /Setkeytime 1440
 ```
 
-También puede configurarse desde el menú de instalación de la VPS.
-
-Los usuarios no pueden modificar la duración desde `/Keygen`.
-
-## Una licencia activa por usuario
-
-Antes de generar una key, el bot consulta las licencias del remitente. Cuando ya existe una licencia activa, no crea otra y muestra el tiempo restante.
-
-La API no conserva la key completa en texto plano, por lo que una key perdida debe revocarse administrativamente antes de emitir una nueva.
-
-## Chats privados
-
-Cualquier usuario que pueda comunicarse con el bot puede ejecutar `/Keygen`. La key se genera para su propio Telegram ID y se entrega en el mismo chat privado.
-
 ## Grupos permitidos
-
-Los grupos autorizados se guardan en:
 
 ```text
 /etc/ADM-db/Allowed-Groups
 ```
 
-Un administrador puede autorizar el grupo ejecutando dentro de él:
-
-```text
-/allowgroup
-```
-
-En un grupo permitido:
+En un grupo autorizado:
 
 - todos los miembros pueden ejecutar `/Keygen`;
-- no necesitan rol de cliente, administrador o revendedor;
-- cada miembro genera únicamente su propia key;
-- la duración es la configurada por el administrador;
-- la key y el instalador se envían por mensaje privado;
-- el grupo recibe solamente una confirmación;
-- si Telegram bloquea la entrega privada, la licencia se revoca automáticamente.
+- cada miembro genera solo su propia key;
+- la key se envía por privado;
+- el grupo recibe únicamente una confirmación;
+- si Telegram impide el mensaje privado, la licencia se revoca.
 
-El usuario debe abrir primero el bot en privado y ejecutar `/start` para que Telegram permita el mensaje directo.
-
-## Menús
-
-### Grupo autorizado
-
-El menú del grupo no muestra roles. Presenta:
-
-- Generar mi key;
-- Mi licencia;
-- Mi ID;
-- Ayuda.
-
-### Cliente con licencia activa
-
-`/start` muestra:
-
-- tiempo restante;
-- estado;
-- vencimiento;
-- IP vinculada;
-- instalador;
-- actualización.
-
-### Administrador
-
-Puede administrar duración, licencias, revendedores, grupos, API y diagnósticos.
+El usuario debe abrir primero el bot en privado y ejecutar `/start`.
 
 ## Comandos comunes
 
@@ -179,25 +163,6 @@ Puede administrar duración, licencias, revendedores, grupos, API y diagnóstico
 /update
 ```
 
-## Instalador entregado al usuario
-
-El bot entrega un comando que:
-
-1. instala `curl` y certificados cuando faltan;
-2. descarga `https://ghostdeveloper.duckdns.org/install.sh`;
-3. solicita la key;
-4. verifica la autorización RSA;
-5. valida SHA-256;
-6. descarga el paquete privado temporal;
-7. ejecuta Hex Tunnel.
-
-Después de instalar:
-
-```bash
-sudo hextunnel-license status
-sudo hextunnel-upgrade
-```
-
 ## Archivos persistentes
 
 ```text
@@ -209,7 +174,7 @@ sudo hextunnel-upgrade
 /etc/ADM-db/repository.env
 ```
 
-Los archivos privados usan permisos `600`; el directorio de estado utiliza `700`.
+Los archivos privados usan permisos `600` y el directorio de estado usa `700`.
 
 ## Diagnóstico
 
@@ -217,11 +182,8 @@ Los archivos privados usan permisos `600`; el directorio de estado utiliza `700`
 systemctl status telebotgen.service ghost-license-api.service --no-pager
 journalctl -u telebotgen.service -n 100 --no-pager
 curl -sS http://127.0.0.1:8080/health | jq
-cat /etc/ADM-db/Key-Duration-Minutes
-ss -lntp | grep -E ':(8080|8888)\b'
+sudo /usr/local/bin/telebotgen-deploy
 ```
-
-La API debe escuchar solamente en `127.0.0.1:8080` y no debe existir ningún listener en `8888`.
 
 ## Desarrolladores
 
