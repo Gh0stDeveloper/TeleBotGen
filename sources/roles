@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Roles, grupos permitidos y configuración global de keys.
+# Roles, grupos permitidos, atribución de reseller y almacenamiento efímero de keys.
 
-ADMIN_FILE="${TELEBOTGEN_ADMIN_FILE:-/etc/ADM-db/Admin-ID}"
-RESELLER_FILE="${TELEBOTGEN_RESELLER_FILE:-/etc/ADM-db/Reseller-ID}"
-GROUP_FILE="${TELEBOTGEN_GROUP_FILE:-/etc/ADM-db/Allowed-Groups}"
-KEY_DURATION_FILE="${TELEBOTGEN_KEY_DURATION_FILE:-/etc/ADM-db/Key-Duration-Minutes}"
+STATE_ROOT="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
+ADMIN_FILE="${TELEBOTGEN_ADMIN_FILE:-$STATE_ROOT/Admin-ID}"
+RESELLER_FILE="${TELEBOTGEN_RESELLER_FILE:-$STATE_ROOT/Reseller-ID}"
+CLIENT_FILE="${TELEBOTGEN_CLIENT_FILE:-$STATE_ROOT/Client-ID}"
+GROUP_FILE="${TELEBOTGEN_GROUP_FILE:-$STATE_ROOT/Allowed-Groups}"
+GROUP_OWNER_FILE="${TELEBOTGEN_GROUP_OWNER_FILE:-$STATE_ROOT/Group-Owners.tsv}"
+RESELLER_NAME_FILE="${TELEBOTGEN_RESELLER_NAME_FILE:-$STATE_ROOT/Reseller-Names.tsv}"
+ISSUED_KEY_FILE="${TELEBOTGEN_ISSUED_KEY_FILE:-$STATE_ROOT/Issued-Keys.tsv}"
+KEY_DURATION_FILE="${TELEBOTGEN_KEY_DURATION_FILE:-$STATE_ROOT/Key-Duration-Minutes}"
 DEFAULT_KEY_DURATION_MINUTES="${TELEBOTGEN_DEFAULT_KEY_DURATION_MINUTES:-240}"
+DEFAULT_RESELLER_NAME="${TELEBOTGEN_DEFAULT_RESELLER_NAME:-Hex Tunnel Bot Gen}"
 
 valid_key_duration() {
     local minutes="${1:-}"
@@ -14,7 +20,9 @@ valid_key_duration() {
 
 roles_prepare_files() {
     local file directory
-    for file in "$ADMIN_FILE" "$RESELLER_FILE" "$GROUP_FILE"; do
+    for file in \
+        "$ADMIN_FILE" "$RESELLER_FILE" "$CLIENT_FILE" "$GROUP_FILE" \
+        "$GROUP_OWNER_FILE" "$RESELLER_NAME_FILE" "$ISSUED_KEY_FILE"; do
         directory="$(dirname -- "$file")"
         install -d -m 700 "$directory"
         [[ -e "$file" ]] || : > "$file"
@@ -37,23 +45,24 @@ role_file_contains() {
 
 role_is_admin() { role_file_contains "$ADMIN_FILE" "$1"; }
 role_is_reseller() { role_file_contains "$RESELLER_FILE" "$1"; }
+role_is_client() { role_file_contains "$CLIENT_FILE" "$1"; }
 
 group_is_chat() { [[ "${1:-}" == -* ]]; }
 group_is_allowed() { role_file_contains "$GROUP_FILE" "$1"; }
 
 keygen_context_allowed() {
-    local chat_type="${1:-}" chat_id="${2:-}"
-    [[ "$chat_type" == private ]] || {
-        [[ "$chat_type" == group ]] && group_is_allowed "$chat_id"
-    }
+    local chat_type="${1:-}" chat_id="${2:-}" role="${3:-public}"
+    if [[ "$chat_type" == group ]]; then
+        group_is_allowed "$chat_id"
+    else
+        [[ "$role" == admin || "$role" == reseller || "$role" == client ]]
+    fi
 }
 
 key_duration_get() {
     local minutes
     minutes="$(tr -d '[:space:]' < "$KEY_DURATION_FILE" 2>/dev/null || true)"
-    if ! valid_key_duration "$minutes"; then
-        minutes="$DEFAULT_KEY_DURATION_MINUTES"
-    fi
+    valid_key_duration "$minutes" || minutes="$DEFAULT_KEY_DURATION_MINUTES"
     valid_key_duration "$minutes" || minutes=240
     printf '%s' "$minutes"
 }
@@ -61,10 +70,10 @@ key_duration_get() {
 key_duration_set() {
     local minutes="${1:-}" temporary
     valid_key_duration "$minutes" || return 1
-    temporary="$(mktemp)"
+    temporary="$(mktemp "$(dirname "$KEY_DURATION_FILE")/.key-duration.XXXXXX")" || return 1
     printf '%s\n' "$minutes" > "$temporary"
-    install -m 600 "$temporary" "$KEY_DURATION_FILE"
-    rm -f "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$KEY_DURATION_FILE"
 }
 
 actor_resolve_role() {
@@ -74,30 +83,105 @@ actor_resolve_role() {
         actor_role='admin'
     elif role_is_reseller "$actor"; then
         actor_role='reseller'
+    elif role_is_client "$actor"; then
+        actor_role='client'
     else
-        actor_license_json="$(license_api_active_for_owner "$actor" 2>/dev/null || true)"
-        if [[ -n "$actor_license_json" && "$actor_license_json" != null ]]; then
-            actor_role='client'
-        else
-            actor_role='public'
-        fi
+        actor_role='public'
     fi
     export actor_role actor_license_json
 }
 
 role_add_value() {
-    local file="$1" value="$2"
+    local file="$1" value="$2" lock temporary
     [[ -n "$value" ]] || return 2
-    role_file_contains "$file" "$value" || printf '%s\n' "$value" >> "$file"
-    sort -u -o "$file" "$file"
-    chmod 600 "$file"
+    lock="$file.lock"
+    exec {role_lock_fd}>"$lock" || return 1
+    flock -w 10 "$role_lock_fd" || return 1
+    temporary="$(mktemp "$(dirname "$file")/.roles.XXXXXX")" || return 1
+    { cat "$file" 2>/dev/null || true; printf '%s\n' "$value"; } | awk 'NF' | sort -u > "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$file"
+    flock -u "$role_lock_fd"
+    exec {role_lock_fd}>&-
 }
 
 role_remove_value() {
-    local file="$1" value="$2" temporary
+    local file="$1" value="$2" lock temporary
     [[ -n "$value" && -e "$file" ]] || return 2
-    temporary="$(mktemp)"
+    lock="$file.lock"
+    exec {role_lock_fd}>"$lock" || return 1
+    flock -w 10 "$role_lock_fd" || return 1
+    temporary="$(mktemp "$(dirname "$file")/.roles.XXXXXX")" || return 1
     grep -Fvx -- "$value" "$file" > "$temporary" || true
-    install -m 600 "$temporary" "$file"
-    rm -f "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$file"
+    flock -u "$role_lock_fd"
+    exec {role_lock_fd}>&-
 }
+
+mapping_get() {
+    local file="$1" key="$2"
+    awk -F '\t' -v wanted="$key" '$1 == wanted {value=$2} END {print value}' "$file" 2>/dev/null
+}
+
+mapping_set() {
+    local file="$1" key="$2" value="$3" lock temporary
+    [[ -n "$key" && -n "$value" ]] || return 2
+    [[ "$key" != *$'\t'* && "$value" != *$'\t'* && "$value" != *$'\n'* ]] || return 2
+    lock="$file.lock"
+    exec {mapping_lock_fd}>"$lock" || return 1
+    flock -w 10 "$mapping_lock_fd" || return 1
+    temporary="$(mktemp "$(dirname "$file")/.mapping.XXXXXX")" || return 1
+    awk -F '\t' -v wanted="$key" '$1 != wanted' "$file" 2>/dev/null > "$temporary" || true
+    printf '%s\t%s\n' "$key" "$value" >> "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$file"
+    flock -u "$mapping_lock_fd"
+    exec {mapping_lock_fd}>&-
+}
+
+mapping_remove() {
+    local file="$1" key="$2" lock temporary
+    lock="$file.lock"
+    exec {mapping_lock_fd}>"$lock" || return 1
+    flock -w 10 "$mapping_lock_fd" || return 1
+    temporary="$(mktemp "$(dirname "$file")/.mapping.XXXXXX")" || return 1
+    awk -F '\t' -v wanted="$key" '$1 != wanted' "$file" 2>/dev/null > "$temporary" || true
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$file"
+    flock -u "$mapping_lock_fd"
+    exec {mapping_lock_fd}>&-
+}
+
+normalize_reseller_name() {
+    local value="${1:-}"
+    value="$(printf '%s' "$value" | tr -d '\r\n\t<>&' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    [[ ${#value} -ge 2 && ${#value} -le 64 ]] || return 1
+    printf '%s' "$value"
+}
+
+reseller_name_get() {
+    local actor="$1" value
+    value="$(mapping_get "$RESELLER_NAME_FILE" "$actor")"
+    [[ -n "$value" ]] && printf '%s' "$value" || printf '%s' "$DEFAULT_RESELLER_NAME"
+}
+
+reseller_name_set() {
+    local actor="$1" raw="$2" value
+    value="$(normalize_reseller_name "$raw")" || return 1
+    mapping_set "$RESELLER_NAME_FILE" "$actor" "$value"
+}
+
+group_owner_get() { mapping_get "$GROUP_OWNER_FILE" "$1"; }
+group_owner_set() { mapping_set "$GROUP_OWNER_FILE" "$1" "$2"; }
+group_owner_remove() { mapping_remove "$GROUP_OWNER_FILE" "$1"; }
+
+group_reseller_name_get() {
+    local owner
+    owner="$(group_owner_get "$1")"
+    [[ -n "$owner" ]] && reseller_name_get "$owner" || printf '%s' "$DEFAULT_RESELLER_NAME"
+}
+
+issued_key_store() { mapping_set "$ISSUED_KEY_FILE" "$1" "$2"; }
+issued_key_get() { mapping_get "$ISSUED_KEY_FILE" "$1"; }
+issued_key_remove() { mapping_remove "$ISSUED_KEY_FILE" "$1"; }
