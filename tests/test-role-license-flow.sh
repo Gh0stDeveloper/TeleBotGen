@@ -59,10 +59,13 @@ reseller_name_set 300 'Cliente Store'
 key_duration_set 1440
 [[ "$(key_duration_get)" == 1440 ]]
 
-issued_key_store license-1 'HT-FULL-KEY-ONE'
+issued_key_store license-1 'HT-FULL-KEY-ONE' '2099-01-01T00:00:00Z'
 [[ "$(issued_key_get license-1)" == 'HT-FULL-KEY-ONE' ]]
-issued_key_remove license-1
+issued_key_cleanup 4102444800
 [[ -z "$(issued_key_get license-1)" ]]
+issued_key_store license-2 'HT-FULL-KEY-TWO' '2099-01-01T00:00:00Z'
+issued_key_remove license-2
+[[ -z "$(issued_key_get license-2)" ]]
 
 license_api_create() {
     printf '%s\n' "$@" > "$TMP/create-args"
