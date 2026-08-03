@@ -84,17 +84,20 @@ jobs:
           grep -Fq 'ISSUED_KEY_FILE=' sources/roles
           grep -Fq 'group_reseller_name_get' sources/roles
           grep -Fq 'issued_key_store' sources/roles
+          grep -Fq 'issued_key_cleanup' sources/roles
+          grep -Fq 'expires_epoch' sources/roles
           grep -Fq 'flock -w 10' sources/roles
 
           ! grep -Fq 'license_api_active_for_owner' sources/gerar_key
           grep -Fq 'keygen_context_allowed' sources/gerar_key
           grep -Fq 'group_reseller_name_get' sources/gerar_key
-          grep -Fq 'issued_key_store' sources/gerar_key
+          grep -Fq 'issued_key_store "$license_id" "$key" "$expires_at"' sources/gerar_key
           grep -Fq 'license_api_create_installer_link' sources/gerar_key
           grep -Fq 'Una vez activada correctamente' sources/gerar_key
 
           grep -Fq 'KEY ACTIVADA CORRECTAMENTE' sources/notifications
           grep -Fq 'subject_ip' sources/notifications
+          grep -Fq 'issued_key_cleanup "$now"' sources/notifications
           grep -Fq 'license_api_mark_event_delivered' sources/notifications
           grep -Fq 'issued_key_remove' sources/notifications
 
@@ -103,6 +106,7 @@ jobs:
           grep -Fq '/allowgroup' sources/ayuda
           grep -Fq 'HEX TUNNEL BOT GEN' sources/menu
           grep -Fq 'Sitio público de Hex Tunnel' sources/menu
+          ! grep -Fq 'TeleBotGen:' sources/update
 
       - name: Validate transactional and privilege-separated deployment
         shell: bash
@@ -139,6 +143,8 @@ jobs:
           grep -Fq 'bash "$installer"' update.sh
           grep -Fq -- '--config "$config"' update.sh
           ! grep -Eq 'api.telegram.org/bot\$\{?token' update.sh
+          ! grep -Fq '${REPOSITORY}@${REF}' update.sh
+          grep -Fq "notify_admin '🔄 Actualización iniciada.'" update.sh
           grep -Fxq 'V3.2.0-rc.1' Vercion
 
       - name: Upload ShellCheck diagnostics
