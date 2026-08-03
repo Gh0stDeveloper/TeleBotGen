@@ -54,7 +54,7 @@ gerar_key() {
     key="$(jq -r '.key // empty' <<< "$response")"
     expires_at="$(jq -r '.expires_at // empty' <<< "$response")"
     license_id="$(jq -r '.id // empty' <<< "$response")"
-    [[ -n "$key" && -n "$license_id" ]] || {
+    [[ -n "$key" && -n "$expires_at" && -n "$license_id" ]] || {
         bot_retorno="❌ <b>No se pudo completar la solicitud</b>"
         msj_fun
         return 1
@@ -70,7 +70,7 @@ gerar_key() {
         return 1
     fi
 
-    issued_key_store "$license_id" "$key" || {
+    issued_key_store "$license_id" "$key" "$expires_at" || {
         license_api_revoke "$license_id" "No se pudo registrar localmente la key para notificación" >/dev/null 2>&1 || true
         bot_retorno="❌ <b>No se pudo guardar la key de forma segura</b>"
         msj_fun
