@@ -49,7 +49,6 @@ comand() {
             /keytime|/Keytime|/KEYTIME|/tiempokey) access_show_key_duration ;;
             /setkeytime|/Setkeytime|/SETKEYTIME|/configurartiempokey) access_set_key_duration ;;
             /api|/service|/servicio) access_service_status ;;
-            /infosys|/sistema) infosys_src ;;
             /update|/actualizar) update ;;
         esac
     fi
