@@ -2,7 +2,8 @@
 
 TeleBotGen administra por Telegram las licencias comerciales de Hex Tunnel mediante `GhostDeveloperLicenseServer`.
 
-Versión: `V3.1.0-rc.1`
+- Versión: `V3.1.0-rc.1`
+- Rama de distribución predeterminada: `main`
 
 ## Cambios operativos de 3.1
 
@@ -74,13 +75,16 @@ La VPS cliente de Hex Tunnel debe ser distinta a la VPS del bot y puede usar AMD
 
 ## Instalación o actualización
 
-### Desde el repositorio
+### Desde la rama estable `main`
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/feat/hextunnel-license-integration/confbot.sh" \
+curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh" \
   -o /tmp/confbot.sh
-sudo TELEBOTGEN_REF=feat/hextunnel-license-integration bash /tmp/confbot.sh install
+sudo bash /tmp/confbot.sh install
+rm -f /tmp/confbot.sh
 ```
+
+`confbot.sh` y `deploy.sh` utilizan `main` de forma predeterminada. No es necesario definir `TELEBOTGEN_REF` para una instalación normal.
 
 ### Desde el servidor de operaciones
 
@@ -95,6 +99,40 @@ sudo telebotgen-update
 ```
 
 Los tres métodos usan el mismo despliegue transaccional.
+
+### Corregir una instalación que conserva una referencia antigua
+
+Una instalación anterior puede conservar su referencia en `/etc/telebotgen/deploy.env`. Ejecuta una vez el instalador estable para reemplazarla por `main`:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh" \
+  -o /tmp/confbot.sh
+sudo TELEBOTGEN_REF=main bash /tmp/confbot.sh install
+rm -f /tmp/confbot.sh
+```
+
+Comprueba el resultado sin mostrar secretos:
+
+```bash
+sudo grep -E '^TELEBOTGEN_(REPOSITORY|REF)=' /etc/telebotgen/deploy.env
+```
+
+El resultado esperado contiene:
+
+```text
+TELEBOTGEN_REPOSITORY=Gh0stDeveloper/TeleBotGen
+TELEBOTGEN_REF=main
+```
+
+### Usar otra referencia de forma explícita
+
+Las ramas o tags alternativos solo deben utilizarse para pruebas controladas:
+
+```bash
+sudo TELEBOTGEN_REF=<rama-o-tag> bash /tmp/confbot.sh install
+```
+
+La referencia seleccionada queda protegida en `/etc/telebotgen/deploy.env` y será reutilizada por `telebotgen-update` hasta que se ejecute otro despliegue con una referencia diferente.
 
 ## Configuración interactiva
 
@@ -212,6 +250,19 @@ Configuración root de despliegue:
 /etc/telebotgen/deploy.env
 ```
 
+## Validación automatizada
+
+GitHub Actions valida:
+
+- sintaxis Bash y ShellCheck;
+- compatibilidad del runtime ShellBot;
+- roles, grupos y generación de licencias;
+- solicitudes de actualización sin privilegios;
+- despliegue transaccional y rollback;
+- integración con Debian 12 y systemd;
+- uso obligatorio de `main` como referencia predeterminada;
+- ausencia de referencias a ramas de integración ya fusionadas.
+
 ## Diagnóstico
 
 ```bash
@@ -221,6 +272,10 @@ curl -sS http://127.0.0.1:8080/health | jq
 sudo /usr/local/bin/telebotgen-deploy
 stat -c '%U:%G:%a %n' /etc/telebotgen/deploy.env
 ```
+
+## Seguridad
+
+- [Rotación del token de Telegram](docs/SECURITY-NOTE-TOKEN-ROTATION.md)
 
 ## Desarrolladores
 
