@@ -50,7 +50,10 @@ keygen_context_allowed group -1001234567890 public
 [[ "$(group_owner_get -1001234567890)" == 200 ]]
 [[ "$(group_reseller_name_get -1001234567890)" == 'Reseller Norte' ]]
 [[ "$(reseller_name_get 400)" == 'Hex Tunnel Bot Gen' ]]
-! reseller_name_set 300 '<nombre inválido>'
+reseller_name_set 300 '<nombre seguro>'
+[[ "$(reseller_name_get 300)" == 'nombre seguro' ]]
+! reseller_name_set 300 'x'
+reseller_name_set 300 'Cliente Store'
 
 [[ "$(key_duration_get)" == 240 ]]
 key_duration_set 1440
