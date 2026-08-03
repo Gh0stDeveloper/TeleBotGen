@@ -55,7 +55,7 @@ notify_admin() {
 
 installer="$(mktemp /tmp/telebotgen-deploy.XXXXXX)"
 trap 'rm -f "${installer:-}"' EXIT
-notify_admin "TeleBotGen: iniciando actualización desde ${REPOSITORY}@${REF}."
+notify_admin '🔄 Actualización iniciada.'
 
 curl -fsSL --retry 3 --connect-timeout 8 --max-time 60 \
     "$RAW_BASE/deploy.sh" -o "$installer"
@@ -66,8 +66,8 @@ chmod 700 "$installer"
 if TELEBOTGEN_REPOSITORY="$REPOSITORY" TELEBOTGEN_REF="$REF" \
     bash "$installer"; then
     version="$(tr -d '\r\n' < "$STATE_DIR/vercion" 2>/dev/null || printf desconocida)"
-    notify_admin "TeleBotGen actualizado correctamente a ${version}."
+    notify_admin "✅ Actualización completada. Versión: ${version}."
 else
-    notify_admin 'TeleBotGen: actualización revertida. Revisa journalctl -u telebotgen.'
+    notify_admin '❌ La actualización no pudo completarse y se restauró la versión anterior.'
     exit 1
 fi

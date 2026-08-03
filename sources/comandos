@@ -9,6 +9,21 @@ common_command() {
         /install|/Install|/instal|/Instal) link_src; return 0 ;;
         /upgrade|/Upgrade|/actualizarhex) upgrade_src; return 0 ;;
         /keygen|/Keygen|/KEYGEN) gerar_key; return 0 ;;
+        /reseller|/mireseller) access_show_reseller; return 0 ;;
+        /setreseller|/configurarreseller) access_set_reseller; return 0 ;;
+        /mykeys|/miskeys) access_mykeys; return 0 ;;
+    esac
+    return 1
+}
+
+access_management_command() {
+    case "${comando[0]:-}" in
+        /addclient|/addcliente) access_add_client; return 0 ;;
+        /delclient|/delcliente) access_del_client; return 0 ;;
+        /clients|/clientes) access_list_clients; return 0 ;;
+        /allowgroup|/permitirgrupo) access_allow_group; return 0 ;;
+        /delgroup|/eliminargrupo) access_del_group; return 0 ;;
+        /groups|/grupos) access_list_groups; return 0 ;;
     esac
     return 1
 }
@@ -19,30 +34,22 @@ comand() {
 
     common_command && return 0
 
-    case "$actor_role" in
-        reseller)
-            case "$command_name" in
-                /mykeys|/miskeys) access_mykeys ;;
-            esac
-            ;;
-        admin)
-            case "$command_name" in
-                /mykeys|/miskeys) access_mykeys ;;
-                /licenses|/licencias) access_list_licenses ;;
-                /revoke|/revocar) access_revoke_license ;;
-                /reset|/resetear) access_reset_license ;;
-                /addreseller|/addrevendedor) access_add_reseller ;;
-                /delreseller|/delrevendedor) access_del_reseller ;;
-                /resellers|/revendedores) access_list_resellers ;;
-                /allowgroup|/permitirgrupo) access_allow_group ;;
-                /delgroup|/eliminargrupo) access_del_group ;;
-                /groups|/grupos) access_list_groups ;;
-                /keytime|/Keytime|/KEYTIME|/tiempokey) access_show_key_duration ;;
-                /setkeytime|/Setkeytime|/SETKEYTIME|/configurartiempokey) access_set_key_duration ;;
-                /api) access_api_status ;;
-                /infosys|/sistema) infosys_src ;;
-                /update|/actualizar) update ;;
-            esac
-            ;;
-    esac
+    if [[ "$actor_role" == reseller || "$actor_role" == admin ]]; then
+        access_management_command && return 0
+    fi
+
+    if [[ "$actor_role" == admin ]]; then
+        case "$command_name" in
+            /licenses|/licencias) access_list_licenses ;;
+            /revoke|/revocar) access_revoke_license ;;
+            /reset|/resetear) access_reset_license ;;
+            /addreseller|/addrevendedor) access_add_reseller ;;
+            /delreseller|/delrevendedor) access_del_reseller ;;
+            /resellers|/revendedores) access_list_resellers ;;
+            /keytime|/Keytime|/KEYTIME|/tiempokey) access_show_key_duration ;;
+            /setkeytime|/Setkeytime|/SETKEYTIME|/configurartiempokey) access_set_key_duration ;;
+            /api|/service|/servicio) access_service_status ;;
+            /update|/actualizar) update ;;
+        esac
+    fi
 }

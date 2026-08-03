@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Entrega avisos de activación pendientes sin exponer infraestructura interna.
+
+TELEBOTGEN_EVENT_POLL_SECONDS="${TELEBOTGEN_EVENT_POLL_SECONDS:-10}"
+telebotgen_next_event_poll=0
+
+activation_event_message() {
+    local key="$1" ip="$2" activated_at="$3" reseller_name="$4" local_date
+    local_date="$(date -d "$activated_at" '+%d/%m/%Y %H:%M:%S %Z' 2>/dev/null || printf '%s' "$activated_at")"
+    cat <<EOF
+✅ <b>KEY ACTIVADA CORRECTAMENTE</b>
+━━━━━━━━━━━━━━━━━━━━
+🔑 <b>Key usada</b>
+<code>$(html_escape "$key")</code>
+
+🌐 <b>IP pública:</b> <code>$(html_escape "$ip")</code>
+🗓️ <b>Fecha y hora:</b> <code>$(html_escape "$local_date")</code>
+🏷️ <b>Reseller:</b> $(html_escape "$reseller_name")
+━━━━━━━━━━━━━━━━━━━━
+♾️ La instalación quedó activada de forma permanente hasta una revocación administrativa.
+EOF
+}
+
+process_activation_events() {
+    local now data item event_id license_id chat_id key ip activated_at reseller_name message
+    now="$(date -u +%s)"
+    ((now >= telebotgen_next_event_poll)) || return 0
+    telebotgen_next_event_poll=$((now + TELEBOTGEN_EVENT_POLL_SECONDS))
+    issued_key_cleanup "$now" || true
+
+    data="$(license_api_pending_activation_events 2>/dev/null || true)"
+    [[ -n "$data" ]] || return 0
+    jq -e '.items | type == "array"' <<< "$data" >/dev/null 2>&1 || return 0
+
+    while IFS= read -r item; do
+        [[ -n "$item" ]] || continue
+        event_id="$(jq -r '.id // empty' <<< "$item")"
+        license_id="$(jq -r '.license_id // empty' <<< "$item")"
+        chat_id="$(jq -r '.notification_chat_id // empty' <<< "$item")"
+        ip="$(jq -r '.subject_ip // empty' <<< "$item")"
+        activated_at="$(jq -r '.activated_at // empty' <<< "$item")"
+        reseller_name="$(jq -r '.reseller_name // "Hex Tunnel Bot Gen"' <<< "$item")"
+        [[ -n "$event_id" && -n "$license_id" && "$chat_id" =~ ^-?[0-9]+$ ]] || continue
+
+        key="$(issued_key_get "$license_id")"
+        [[ -n "$key" ]] || continue
+        message="$(activation_event_message "$key" "$ip" "$activated_at" "$reseller_name")"
+        if send_html "$chat_id" "$message" >/dev/null 2>&1; then
+            if license_api_mark_event_delivered "$event_id" >/dev/null 2>&1; then
+                issued_key_remove "$license_id" || true
+            fi
+        fi
+    done < <(jq -c '.items[]' <<< "$data")
+}

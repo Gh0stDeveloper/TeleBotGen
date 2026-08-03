@@ -99,7 +99,7 @@ send_test() {
     chmod 600 "$config" "$response"
     curl -sS --max-time 10 --config "$config" \
         --data-urlencode "chat_id=$admin_id" \
-        --data-urlencode 'text=TeleBotGen y GhostDeveloperLicenseServer están operativos.' \
+        --data-urlencode 'text=✅ Prueba completada. Las funciones autorizadas están disponibles.' \
         -o "$response"
     if jq -e '.ok == true' "$response" >/dev/null; then
         echo 'Mensaje enviado.'

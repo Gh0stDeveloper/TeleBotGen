@@ -26,16 +26,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          files=(
-            confbot.sh update.sh deploy.sh
-            tests/test-role-license-flow.sh
-            tests/test-shellbot-runtime.sh
-            tests/test-update-request.sh
-          )
-          while IFS= read -r item; do
-            [[ -n "$item" ]] || continue
-            files+=("sources/$item")
-          done < sources/lista-bot
+          files=(confbot.sh update.sh deploy.sh tests/test-role-license-flow.sh tests/test-shellbot-runtime.sh tests/test-update-request.sh)
+          while IFS= read -r item; do [[ -n "$item" ]] && files+=("sources/$item"); done < sources/lista-bot
           for file in "${files[@]}"; do bash -n "$file"; done
 
       - name: Validate ShellBot runtime compatibility
@@ -55,55 +47,66 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          files=(
-            confbot.sh update.sh deploy.sh
-            tests/test-role-license-flow.sh
-            tests/test-shellbot-runtime.sh
-            tests/test-update-request.sh
-          )
-          while IFS= read -r item; do
-            [[ -n "$item" ]] || continue
-            files+=("sources/$item")
-          done < sources/lista-bot
+          files=(confbot.sh update.sh deploy.sh tests/test-role-license-flow.sh tests/test-shellbot-runtime.sh tests/test-update-request.sh)
+          while IFS= read -r item; do [[ -n "$item" ]] && files+=("sources/$item"); done < sources/lista-bot
           shellcheck --severity=error -x --format=gcc "${files[@]}" 2>&1 | tee shellcheck.log
 
-      - name: Test role, license and update flows
+      - name: Test role, reseller, key and update flows
         shell: bash
         run: |
           set -Eeuo pipefail
           bash tests/test-role-license-flow.sh
           bash tests/test-update-request.sh
 
-      - name: Enforce production license architecture
+      - name: Enforce public-safe transferable key architecture
         shell: bash
         run: |
           set -Eeuo pipefail
           active_sources=()
-          while IFS= read -r item; do
-            [[ -n "$item" ]] || continue
-            active_sources+=("sources/$item")
-          done < sources/lista-bot
+          while IFS= read -r item; do [[ -n "$item" ]] && active_sources+=("sources/$item"); done < sources/lista-bot
 
           ! grep -REn 'HexGen/|HEXGEN_PORT|KEY_ROOT=.*/http-shell|localhost:8888|:8888/' "${active_sources[@]}"
           ! grep -En 'ExecStart=.*hexgen-http|enable .*hexgen-http|restart .*hexgen-http' confbot.sh update.sh deploy.sh
           ! grep -REn '/[Kk]eygen[^\n]*(minutos|telegram_id|usuario)' sources README.md
-          ! grep -REn 'resolve_key_target|comando\[2\].*owner|reply_user_id.*key' sources/gerar_key
+          ! grep -REn 'Ghost Developer License|GHOST LICENSE API|127\.0\.0\.1:8080' sources/menu sources/ayuda sources/link sources/access
+          ! grep -REn 'api\.telegram\.org|admin-token|deploy\.env|repository\.env' sources/menu sources/ayuda sources/link sources/access
 
           grep -Fq 'http://127.0.0.1:8080' sources/license_api
-          grep -Fq 'owner_telegram_id=' sources/license_api
-          grep -Fq 'active_only=true' sources/license_api
+          grep -Fq 'issued_by_telegram_id=' sources/license_api
+          grep -Fq '/activation-events?pending_only=true' sources/license_api
+          grep -Fq '/installer-links' sources/license_api
           grep -Fq -- '--config "$config"' sources/license_api
-          ! grep -Fq 'license_api_all)' sources/license_api
-          grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' sources/license_api
-          grep -Fq 'Allowed-Groups' sources/roles
-          grep -Fq 'Key-Duration-Minutes' sources/roles
-          grep -Fq 'owner_id="$actor_id"' sources/gerar_key
-          grep -Fq 'allowed-group-member' sources/gerar_key
+          grep -Fq 'https://hextunnel.duckdns.org' sources/license_api
+
+          grep -Fq 'CLIENT_FILE=' sources/roles
+          grep -Fq 'GROUP_OWNER_FILE=' sources/roles
+          grep -Fq 'RESELLER_NAME_FILE=' sources/roles
+          grep -Fq 'ISSUED_KEY_FILE=' sources/roles
+          grep -Fq 'group_reseller_name_get' sources/roles
+          grep -Fq 'issued_key_store' sources/roles
+          grep -Fq 'issued_key_cleanup' sources/roles
+          grep -Fq 'expires_epoch' sources/roles
+          grep -Fq 'flock -w 10' sources/roles
+
+          ! grep -Fq 'license_api_active_for_owner' sources/gerar_key
           grep -Fq 'keygen_context_allowed' sources/gerar_key
-          grep -Fq 'Todos los miembros pueden generar su propia key' sources/menu
-          grep -Fq '/Setkeytime minutos' sources/access
-          grep -Fq '@Gh0stDeveloper' sources/menu
-          grep -Fq '@Jotchua_DevzZ' sources/menu
+          grep -Fq 'group_reseller_name_get' sources/gerar_key
+          grep -Fq 'issued_key_store "$license_id" "$key" "$expires_at"' sources/gerar_key
+          grep -Fq 'license_api_create_installer_link' sources/gerar_key
+          grep -Fq 'Una vez activada correctamente' sources/gerar_key
+
+          grep -Fq 'KEY ACTIVADA CORRECTAMENTE' sources/notifications
+          grep -Fq 'subject_ip' sources/notifications
+          grep -Fq 'issued_key_cleanup "$now"' sources/notifications
+          grep -Fq 'license_api_mark_event_delivered' sources/notifications
+          grep -Fq 'issued_key_remove' sources/notifications
+
+          grep -Fq '/addclient' sources/ayuda
+          grep -Fq '/setreseller' sources/ayuda
+          grep -Fq '/allowgroup' sources/ayuda
+          grep -Fq 'HEX TUNNEL BOT GEN' sources/menu
+          grep -Fq 'Sitio público de Hex Tunnel' sources/menu
+          ! grep -Fq 'TeleBotGen:' sources/update
 
       - name: Validate transactional and privilege-separated deployment
         shell: bash
@@ -123,19 +126,15 @@ jobs:
           grep -Fq 'PathExists=$STATE_DIR/update.request' deploy.sh
           grep -Fq 'ExecStartPre=/usr/bin/rm -f $STATE_DIR/update.request' deploy.sh
           grep -Fq 'install -m 755 "$staging/ShellBot.sh"' deploy.sh
-
           grep -Fq 'CONFIG_DIR="${TELEBOTGEN_CONFIG_DIR:-/etc/telebotgen}"' deploy.sh
           grep -Fq 'DEPLOY_ENV="$CONFIG_DIR/deploy.env"' deploy.sh
           grep -Fq 'install -o root -g root -m 600 "$staging/deploy.env" "$DEPLOY_ENV"' deploy.sh
           grep -Fq 'rm -f "$STATE_DIR/repository.env"' deploy.sh
           grep -Fq 'ReadOnlyPaths=/bin/ShellBot.sh /etc/ghostdeveloper-license $CONFIG_DIR' deploy.sh
-
           grep -Fq 'REF="${TELEBOTGEN_REF:-main}"' confbot.sh
           grep -Fq 'REF="${TELEBOTGEN_REF:-main}"' deploy.sh
           grep -Fq 'https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh' README.md
-          ! grep -REn 'feat/hextunnel-license-integration|agent/public-bootstrap-web' \
-              README.md confbot.sh deploy.sh update.sh docs
-
+          ! grep -REn 'feat/hextunnel-license-integration|agent/public-bootstrap-web' README.md confbot.sh deploy.sh update.sh docs
           grep -Fq 'update.request' sources/update
           ! grep -Fq 'systemd-run' sources/update
           grep -Fq 'DEPLOY_ENV="${TELEBOTGEN_DEPLOY_ENV:-/etc/telebotgen/deploy.env}"' update.sh
@@ -144,7 +143,9 @@ jobs:
           grep -Fq 'bash "$installer"' update.sh
           grep -Fq -- '--config "$config"' update.sh
           ! grep -Eq 'api.telegram.org/bot\$\{?token' update.sh
-          grep -Fxq 'V3.1.0-rc.1' Vercion
+          ! grep -Fq '${REPOSITORY}@${REF}' update.sh
+          grep -Fq "notify_admin '🔄 Actualización iniciada.'" update.sh
+          grep -Fxq 'V3.2.0-rc.1' Vercion
 
       - name: Upload ShellCheck diagnostics
         if: always()

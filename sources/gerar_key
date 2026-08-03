@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generación autoservicio de licencias mediante GhostDeveloperLicenseServer.
+# Generación de códigos de activación transferibles.
 
 self_service_username() {
     local value="${actor_username:-}"
@@ -9,18 +9,18 @@ self_service_username() {
 }
 
 gerar_key() {
-    local minutes owner_id username issuer_role response key expires_at license_id
-    local active_license active_expires active_remaining
-    local install_command upgrade_command delivery_text confirmation
+    local minutes owner_id username issuer_id issuer_role source_chat notification_chat
+    local reseller_name response key expires_at license_id link_response installer_url link_expires
+    local install_command delivery_text
 
-    if ! keygen_context_allowed "$current_chat_type" "$current_chat_id"; then
-        bot_retorno="$LINE\nEste chat no está autorizado para generar keys.\n$LINE"
+    if ! keygen_context_allowed "$current_chat_type" "$current_chat_id" "$actor_role"; then
+        bot_retorno="🚫 <b>Acceso no disponible</b>\n\nEsta función requiere acceso autorizado. Consulta <code>/help</code>."
         msj_fun
         return 0
     fi
 
     if ((${#comando[@]} > 1)); then
-        bot_retorno="$LINE\nUsa solamente <code>/Keygen</code>. El ID y la duración se asignan automáticamente.\n$LINE"
+        bot_retorno="⚠️ <b>Comando incorrecto</b>\n\nUsa únicamente <code>/Keygen</code>."
         msj_fun
         return 0
     fi
@@ -28,29 +28,25 @@ gerar_key() {
     owner_id="$actor_id"
     username="$(self_service_username)"
     minutes="$(key_duration_get)"
-    active_license="$(license_api_active_for_owner "$owner_id" 2>/dev/null || true)"
+    source_chat="$current_chat_id"
 
-    if [[ -n "$active_license" && "$active_license" != null ]]; then
-        active_expires="$(jq -r '.expires_at // empty' <<< "$active_license")"
-        active_remaining="$(license_human_duration "$(license_remaining_seconds "$active_expires")")"
-        if [[ "$current_chat_type" == group ]]; then
-            send_html "$current_chat_id" "Ya tienes una licencia activa de Hex Tunnel. Tiempo restante: <b>${active_remaining}</b>. Consulta sus detalles por privado con /license."
-        else
-            bot_retorno="<b>LICENCIA YA EXISTENTE</b>\n$LINE\n"
-            bot_retorno+="Ya tienes una licencia activa.\n"
-            bot_retorno+="Tiempo restante: <b>${active_remaining}</b>\n"
-            bot_retorno+="Vence: <code>$(html_escape "$active_expires")</code>\n"
-            bot_retorno+="Usa /license para consultar su estado.\n$LINE"
-            msj_fun
-        fi
-        return 0
+    if [[ "$current_chat_type" == group ]]; then
+        issuer_id="$actor_id"
+        issuer_role='allowed-group-member'
+        notification_chat="$current_chat_id"
+        reseller_name="$(group_reseller_name_get "$current_chat_id")"
+    else
+        issuer_id="$actor_id"
+        issuer_role="$actor_role"
+        notification_chat="$actor_id"
+        reseller_name="$(reseller_name_get "$actor_id")"
     fi
 
-    issuer_role='private-self-service'
-    [[ "$current_chat_type" == group ]] && issuer_role='allowed-group-member'
-    response="$(license_api_create "$minutes" "$owner_id" "$username" "$owner_id" "$issuer_role" "$current_chat_id" 2>/dev/null || true)"
+    response="$(license_api_create \
+        "$minutes" "$owner_id" "$username" "$issuer_id" "$issuer_role" \
+        "$source_chat" "$notification_chat" "$reseller_name" 2>/dev/null || true)"
     if [[ -z "$response" ]] || ! jq empty <<< "$response" >/dev/null 2>&1; then
-        bot_retorno="$LINE\nLa API no pudo crear tu licencia. Comunícate con un administrador.\n$LINE"
+        bot_retorno="❌ <b>No se pudo generar la key</b>\n\nInténtalo nuevamente en unos momentos."
         msj_fun
         return 1
     fi
@@ -58,40 +54,44 @@ gerar_key() {
     key="$(jq -r '.key // empty' <<< "$response")"
     expires_at="$(jq -r '.expires_at // empty' <<< "$response")"
     license_id="$(jq -r '.id // empty' <<< "$response")"
-    [[ -n "$key" && -n "$license_id" ]] || {
-        bot_retorno="$LINE\nLa API devolvió una licencia incompleta.\n$LINE"
+    [[ -n "$key" && -n "$expires_at" && -n "$license_id" ]] || {
+        bot_retorno="❌ <b>No se pudo completar la solicitud</b>"
         msj_fun
         return 1
     }
 
-    install_command="$(html_escape "$(hextunnel_install_command)")"
-    upgrade_command="$(html_escape "$(hextunnel_upgrade_command)")"
-    delivery_text="<b>HEX TUNNEL — TU LICENCIA</b>\n$LINE\n"
-    delivery_text+="Telegram ID: <code>${owner_id}</code>\n"
-    delivery_text+="Duración configurada: <b>$(license_human_duration "$((minutes*60))")</b>\n"
-    delivery_text+="Vence: <code>$(html_escape "$expires_at")</code>\n"
-    delivery_text+="$LINE\n"
-    delivery_text+="Key:\n<code>$(html_escape "$key")</code>\n"
-    delivery_text+="$LINE\n"
-    delivery_text+="Instalación:\n<code>${install_command}</code>\n"
-    delivery_text+="$LINE\n"
-    delivery_text+="Actualización posterior:\n<code>${upgrade_command}</code>\n"
-    delivery_text+="Estado local: <code>sudo hextunnel-license status</code>\n"
-    delivery_text+="$LINE\n"
-    delivery_text+="Instala Hex Tunnel exclusivamente en una VPS dedicada Debian 12 o Ubuntu 22.04/24.04 amd64/x86_64.\n"
-    delivery_text+="Desarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ\n"
-    delivery_text+="$LINE"
-
-    if [[ "$current_chat_type" == group ]]; then
-        if send_html "$owner_id" "$(printf '%b' "$delivery_text")"; then
-            confirmation="<b>Key generada.</b> Los datos privados fueron enviados al usuario que ejecutó /Keygen."
-        else
-            license_api_revoke "$license_id" "Entrega privada fallida; el usuario debe abrir el bot antes de generar desde un grupo" >/dev/null 2>&1 || true
-            confirmation="<b>No se entregó la key.</b> Telegram no permitió enviarte un mensaje privado y la licencia fue revocada automáticamente. Abre el bot en privado, ejecuta /start y vuelve a usar /Keygen en el grupo."
-        fi
-        send_html "$current_chat_id" "$confirmation"
-    else
-        bot_retorno="$delivery_text"
+    link_response="$(license_api_create_installer_link "$actor_id" "$current_chat_id" 2>/dev/null || true)"
+    installer_url="$(jq -r '.url // empty' <<< "$link_response" 2>/dev/null || true)"
+    link_expires="$(jq -r '.expires_at // empty' <<< "$link_response" 2>/dev/null || true)"
+    if [[ -z "$installer_url" ]]; then
+        license_api_revoke "$license_id" "No se pudo crear el enlace temporal de instalación" >/dev/null 2>&1 || true
+        bot_retorno="❌ <b>No se pudo crear el enlace temporal</b>\n\nLa key fue anulada automáticamente."
         msj_fun
+        return 1
     fi
+
+    issued_key_store "$license_id" "$key" "$expires_at" || {
+        license_api_revoke "$license_id" "No se pudo registrar localmente la key para notificación" >/dev/null 2>&1 || true
+        bot_retorno="❌ <b>No se pudo guardar la key de forma segura</b>"
+        msj_fun
+        return 1
+    }
+
+    install_command="$(html_escape "$(hextunnel_install_command "$installer_url")")"
+    delivery_text="🎟️ <b>NUEVA KEY GENERADA</b>\n"
+    delivery_text+="━━━━━━━━━━━━━━━━━━━━\n"
+    delivery_text+="🔑 <b>Key</b>\n<code>$(html_escape "$key")</code>\n\n"
+    delivery_text+="⏳ <b>Disponible para activarse durante:</b> $(license_human_duration "$((minutes*60))")\n"
+    delivery_text+="📅 <b>Vence sin usar:</b> <code>$(html_escape "$expires_at")</code>\n"
+    delivery_text+="🏷️ <b>Reseller:</b> $(html_escape "$reseller_name")\n\n"
+    delivery_text+="🔗 <b>Enlace temporal del instalador</b>\n"
+    delivery_text+="<a href=\"$(html_escape "$installer_url")\">Abrir instalador</a>\n"
+    delivery_text+="Caduca: <code>$(html_escape "$link_expires")</code>\n\n"
+    delivery_text+="💻 <b>Comando de instalación</b>\n<code>${install_command}</code>\n"
+    delivery_text+="━━━━━━━━━━━━━━━━━━━━\n"
+    delivery_text+="✅ La key puede entregarse a otra persona.\n"
+    delivery_text+="♾️ Una vez activada correctamente, la instalación permanece activa hasta que sea revocada."
+
+    bot_retorno="$delivery_text"
+    msj_fun
 }

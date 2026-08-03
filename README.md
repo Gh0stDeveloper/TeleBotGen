@@ -1,44 +1,165 @@
 # TeleBotGen para Hex Tunnel
 
-TeleBotGen administra por Telegram las licencias comerciales de Hex Tunnel mediante `GhostDeveloperLicenseServer`.
+Bot de Telegram para distribuir códigos de activación temporales de Hex Tunnel, administrar accesos y atribuir cada instalación a un reseller público.
 
-- Versión: `V3.1.0-rc.1`
-- Rama de distribución predeterminada: `main`
+- Versión: `V3.2.0-rc.1`
+- Rama estable predeterminada: `main`
+- Sitio público: `https://hextunnel.duckdns.org`
 
-## Cambios operativos de 3.1
+## Modelo de activación
 
-- Actualización transaccional mediante `deploy.sh`.
-- Descarga y validación completa antes de detener el bot.
-- Respaldo en `/var/backups/telebotgen`.
-- Rollback automático cuando el servicio no vuelve a quedar activo.
-- Ejecución del bot como usuario de sistema `telebotgen`, no como root.
-- Actualización root mediante una unidad fija activada por `telebotgen-update.path`.
-- Procedencia de actualización protegida en `/etc/telebotgen/deploy.env`, propiedad de root y modo `600`.
-- Token de Telegram y token administrativo ocultos de los argumentos de `curl`.
-- Consulta de licencias por `owner_telegram_id` directamente en la API.
-- Prevención de duplicados sin depender de una lista global limitada a 200 registros.
-- `confbot.sh install` permite despliegues no interactivos desde `ghostctl` y GitHub Actions.
+Una key es un código transferible de un solo uso:
 
-## Arquitectura
+1. el administrador configura cuántos minutos puede permanecer sin utilizarse;
+2. un administrador, revendedor, cliente autorizado o miembro de un grupo permitido genera la key;
+3. la key puede entregarse a otra persona;
+4. al utilizarse correctamente queda vinculada a la IP pública de esa instalación;
+5. el vencimiento original deja de afectar a la instalación activada;
+6. la instalación continúa operativa y puede actualizarse mientras no sea revocada administrativamente.
+
+La key no se conserva en texto plano en el servidor de autorizaciones. TeleBotGen mantiene una copia local protegida únicamente para entregar el aviso de activación: la elimina después de confirmar el aviso o automáticamente cuando vence sin utilizarse.
+
+## Resellers
+
+Cada administrador, revendedor o cliente autorizado puede configurar un nombre público:
 
 ```text
-Usuario de Telegram
-  └── /Keygen
-       └── TeleBotGen obtiene el ID real del remitente
-            └── http://127.0.0.1:8080/api/v1/admin/licenses
-                 └── GhostDeveloperLicenseServer
-                      ├── licencia asociada al Telegram ID
-                      ├── autorización HTTPS firmada
-                      ├── activación vinculada a IP
-                      ├── lease renovable
-                      └── descarga privada de un solo uso
+/setreseller Nombre público
+/reseller
 ```
 
-El bot y la API se ejecutan en la misma VPS. Los endpoints administrativos no se publican y el listener heredado `8888` permanece desactivado.
+Si no se configura un nombre, se utiliza `Hex Tunnel Bot Gen`.
+
+El reseller se incorpora a la autorización firmada y se muestra en el menú instalado de Hex Tunnel. No se acepta como un valor local manipulable por el instalador.
+
+## Grupos permitidos
+
+Administradores y revendedores pueden autorizar grupos:
+
+```text
+/allowgroup
+/delgroup
+/groups
+```
+
+El grupo queda asociado a quien lo autorizó. Sus miembros pueden ejecutar `/Keygen`, pero las keys creadas dentro del grupo utilizan el reseller del administrador o revendedor asociado al grupo.
+
+En un grupo permitido:
+
+- la key se publica en el mismo grupo;
+- se publica también un enlace temporal del instalador;
+- el enlace caduca, pero no sustituye la validación de la key;
+- cuando la key se utiliza, el aviso llega al mismo grupo;
+- el aviso incluye fecha, hora, key utilizada, IP pública y reseller.
+
+## Roles
+
+### Visitante
+
+Puede usar únicamente las funciones públicas, como `/start`, `/help` e `/id`. No puede generar keys en privado.
+
+### Cliente autorizado
+
+Puede generar keys transferibles, configurar su reseller, consultar sus keys y solicitar enlaces temporales.
+
+### Revendedor
+
+Incluye las funciones de cliente y además puede añadir o retirar clientes y administrar sus grupos permitidos.
+
+### Administrador
+
+Incluye todas las funciones anteriores y puede administrar revendedores, duración global, revocaciones y reinicios de activación.
+
+## Comandos principales
+
+```text
+/start
+/help
+/id
+/Keygen
+/mykeys
+/license
+/reseller
+/setreseller Nombre
+/install
+/upgrade
+```
+
+Administradores y revendedores:
+
+```text
+/addclient telegram_id
+/delclient telegram_id
+/clients
+/allowgroup [chat_id]
+/delgroup [chat_id]
+/groups
+```
+
+Solo administradores:
+
+```text
+/Keytime
+/Setkeytime minutos
+/licenses [telegram_id]
+/revoke license_id motivo
+/reset license_id motivo
+/addreseller telegram_id
+/delreseller telegram_id
+/resellers
+/service
+/update
+```
+
+## Enlaces temporales
+
+`/install` y `/Keygen` generan un enlace temporal que redirige al instalador público. El comando entregado usa HTTPS y el instalador continúa solicitando una key válida.
+
+## Notificaciones de activación
+
+TeleBotGen consulta eventos pendientes y envía el aviso al destino registrado:
+
+- chat privado del generador para keys creadas por privado;
+- grupo permitido para keys creadas en ese grupo.
+
+Un evento solo se confirma después de que Telegram acepte el mensaje. Tras confirmarlo, la key completa se elimina del almacenamiento local del bot. Las copias de keys que vencen sin activarse también se purgan automáticamente.
+
+## Archivos persistentes
+
+```text
+/etc/ADM-db/token
+/etc/ADM-db/Admin-ID
+/etc/ADM-db/Reseller-ID
+/etc/ADM-db/Client-ID
+/etc/ADM-db/Allowed-Groups
+/etc/ADM-db/Group-Owners.tsv
+/etc/ADM-db/Reseller-Names.tsv
+/etc/ADM-db/Issued-Keys.tsv
+/etc/ADM-db/Key-Duration-Minutes
+```
+
+Todos los archivos de estado utilizan permisos `600`; el directorio utiliza `700`.
+
+## Instalación o actualización
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh" \
+  -o /tmp/confbot.sh
+sudo bash /tmp/confbot.sh install
+rm -f /tmp/confbot.sh
+```
+
+También puede actualizarse mediante:
+
+```bash
+sudo telebotgen-update
+```
+
+El despliegue utiliza respaldo, staging, validación, reemplazo transaccional y rollback automático.
 
 ## Separación de privilegios
 
-`telebotgen.service` usa:
+`telebotgen.service` se ejecuta con un usuario sin privilegios:
 
 ```text
 User=telebotgen
@@ -48,236 +169,25 @@ ProtectSystem=strict
 CapabilityBoundingSet=
 ```
 
-El usuario del bot puede modificar únicamente su estado en `/etc/ADM-db`. Puede leer el token administrativo mediante el grupo `ghostlicense`, pero no puede modificarlo.
-
-El comando `/update` no ejecuta `systemctl`, `systemd-run` ni comandos root. Solo crea:
-
-```text
-/etc/ADM-db/update.request
-```
-
-`telebotgen-update.path` detecta esa solicitud, la elimina antes de comenzar y ejecuta un actualizador root fijo. El repositorio y la referencia autorizados se leen exclusivamente de:
-
-```text
-/etc/telebotgen/deploy.env
-```
-
-Ese archivo pertenece a root, usa modo `600` y no es escribible por el bot.
-
-## Requisitos
-
-- GhostDeveloperLicenseServer activo en `127.0.0.1:8080`.
-- Token administrativo en `/etc/ghostdeveloper-license/secrets/admin-token`.
-- Debian 12, Ubuntu 22.04 o Ubuntu 24.04.
-- Token de Telegram generado mediante `@BotFather`.
-
-La VPS cliente de Hex Tunnel debe ser distinta a la VPS del bot y puede usar AMD64 o ARM64.
-
-## Instalación o actualización
-
-### Desde la rama estable `main`
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh" \
-  -o /tmp/confbot.sh
-sudo bash /tmp/confbot.sh install
-rm -f /tmp/confbot.sh
-```
-
-`confbot.sh` y `deploy.sh` utilizan `main` de forma predeterminada. No es necesario definir `TELEBOTGEN_REF` para una instalación normal.
-
-### Desde el servidor de operaciones
-
-```bash
-sudo ghostctl deploy-bot
-```
-
-### Actualización instalada
-
-```bash
-sudo telebotgen-update
-```
-
-Los tres métodos usan el mismo despliegue transaccional.
-
-### Corregir una instalación que conserva una referencia antigua
-
-Una instalación anterior puede conservar su referencia en `/etc/telebotgen/deploy.env`. Ejecuta una vez el instalador estable para reemplazarla por `main`:
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh" \
-  -o /tmp/confbot.sh
-sudo TELEBOTGEN_REF=main bash /tmp/confbot.sh install
-rm -f /tmp/confbot.sh
-```
-
-Comprueba el resultado sin mostrar secretos:
-
-```bash
-sudo grep -E '^TELEBOTGEN_(REPOSITORY|REF)=' /etc/telebotgen/deploy.env
-```
-
-El resultado esperado contiene:
-
-```text
-TELEBOTGEN_REPOSITORY=Gh0stDeveloper/TeleBotGen
-TELEBOTGEN_REF=main
-```
-
-### Usar otra referencia de forma explícita
-
-Las ramas o tags alternativos solo deben utilizarse para pruebas controladas:
-
-```bash
-sudo TELEBOTGEN_REF=<rama-o-tag> bash /tmp/confbot.sh install
-```
-
-La referencia seleccionada queda protegida en `/etc/telebotgen/deploy.env` y será reutilizada por `telebotgen-update` hasta que se ejecute otro despliegue con una referencia diferente.
-
-## Configuración interactiva
-
-```bash
-sudo bash confbot.sh menu
-```
-
-Permite configurar:
-
-- token del bot;
-- administrador;
-- revendedores;
-- grupos permitidos;
-- duración global de keys;
-- servicio, actualización y diagnósticos.
-
-## Generación de keys
-
-El usuario ejecuta únicamente:
-
-```text
-/Keygen
-```
-
-TeleBotGen usa `message_from_id` o `callback_query_from_id`. La licencia siempre pertenece al usuario que realizó la acción; no se aceptan ID, username ni duración como argumentos.
-
-## Prevención de duplicados
-
-La API se consulta con:
-
-```text
-owner_telegram_id=<ID>&active_only=true
-```
-
-La API también protege la creación dentro de una transacción. Aunque dos solicitudes `/Keygen` lleguen simultáneamente, solo una licencia activa puede crearse para el mismo Telegram ID y producto.
-
-## Duración global
-
-```text
-/etc/ADM-db/Key-Duration-Minutes
-```
-
-Valor predeterminado: `240` minutos.
-
-Comandos:
-
-```text
-/Keytime
-/Setkeytime 1440
-```
-
-## Grupos permitidos
-
-```text
-/etc/ADM-db/Allowed-Groups
-```
-
-En un grupo autorizado:
-
-- todos los miembros pueden ejecutar `/Keygen`;
-- cada miembro genera solo su propia key;
-- la key se envía por privado;
-- el grupo recibe únicamente una confirmación;
-- si Telegram impide el mensaje privado, la licencia se revoca.
-
-El usuario debe abrir primero el bot en privado y ejecutar `/start`.
-
-## Comandos comunes
-
-```text
-/start
-/menu
-/Keygen
-/id
-/help
-/license
-/install
-/upgrade
-```
-
-## Comandos administrativos
-
-```text
-/Keytime
-/Setkeytime minutos
-/licenses [telegram_id]
-/revoke license_id [motivo]
-/reset license_id [motivo]
-/addreseller telegram_id
-/delreseller telegram_id
-/resellers
-/allowgroup [chat_id]
-/delgroup [chat_id]
-/groups
-/api
-/infosys
-/update
-```
-
-## Archivos persistentes
-
-Estado modificable por el bot:
-
-```text
-/etc/ADM-db/token
-/etc/ADM-db/Admin-ID
-/etc/ADM-db/Reseller-ID
-/etc/ADM-db/Allowed-Groups
-/etc/ADM-db/Key-Duration-Minutes
-```
-
-Configuración root de despliegue:
-
-```text
-/etc/telebotgen/deploy.env
-```
+La procedencia de las actualizaciones se conserva en `/etc/telebotgen/deploy.env`, propiedad de root y modo `600`. El bot solo puede solicitar una actualización creando `/etc/ADM-db/update.request`.
 
 ## Validación automatizada
 
-GitHub Actions valida:
+GitHub Actions comprueba:
 
 - sintaxis Bash y ShellCheck;
-- compatibilidad del runtime ShellBot;
-- roles, grupos y generación de licencias;
-- solicitudes de actualización sin privilegios;
-- despliegue transaccional y rollback;
-- integración con Debian 12 y systemd;
-- uso obligatorio de `main` como referencia predeterminada;
-- ausencia de referencias a ramas de integración ya fusionadas.
-
-## Diagnóstico
-
-```bash
-systemctl status telebotgen.service telebotgen-update.path ghost-license-api.service --no-pager
-journalctl -u telebotgen.service -u telebotgen-update.service -n 100 --no-pager
-curl -sS http://127.0.0.1:8080/health | jq
-sudo /usr/local/bin/telebotgen-deploy
-stat -c '%U:%G:%a %n' /etc/telebotgen/deploy.env
-```
+- compatibilidad con ShellBot;
+- separación de roles;
+- clientes explícitamente autorizados;
+- propiedad de grupos y reseller heredado;
+- keys transferibles sin bloqueo por propietario;
+- enlaces temporales;
+- notificaciones de activación y eliminación posterior de keys;
+- purga automática de keys vencidas sin utilizar;
+- ausencia de información interna en mensajes públicos;
+- despliegue transaccional y separación de privilegios;
+- uso de `main` como referencia predeterminada.
 
 ## Seguridad
 
-- [Rotación del token de Telegram](docs/SECURITY-NOTE-TOKEN-ROTATION.md)
-
-## Desarrolladores
-
-- `@Gh0stDeveloper`: integración, licencias e infraestructura.
-- `@Jotchua_DevzZ`: proyecto original y desarrollo base.
+Consulta [Rotación del token de Telegram](docs/SECURITY-NOTE-TOKEN-ROTATION.md).
