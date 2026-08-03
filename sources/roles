@@ -36,6 +36,7 @@ roles_prepare_files() {
         printf '%s\n' "$DEFAULT_KEY_DURATION_MINUTES" > "$KEY_DURATION_FILE"
     fi
     chmod 600 "$KEY_DURATION_FILE"
+    issued_key_cleanup || true
 }
 
 role_file_contains() {
@@ -182,6 +183,42 @@ group_reseller_name_get() {
     [[ -n "$owner" ]] && reseller_name_get "$owner" || printf '%s' "$DEFAULT_RESELLER_NAME"
 }
 
-issued_key_store() { mapping_set "$ISSUED_KEY_FILE" "$1" "$2"; }
+issued_key_cleanup() {
+    local now="${1:-$(date -u +%s)}" lock temporary
+    [[ "$now" =~ ^[0-9]+$ ]] || return 2
+    lock="$ISSUED_KEY_FILE.lock"
+    exec {issued_key_lock_fd}>"$lock" || return 1
+    flock -w 10 "$issued_key_lock_fd" || return 1
+    temporary="$(mktemp "$(dirname "$ISSUED_KEY_FILE")/.issued-keys.XXXXXX")" || return 1
+    awk -F '\t' -v now="$now" \
+        'NF >= 3 && $3 ~ /^[0-9]+$/ && $3 > now {print $0}' \
+        "$ISSUED_KEY_FILE" 2>/dev/null > "$temporary" || true
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$ISSUED_KEY_FILE"
+    flock -u "$issued_key_lock_fd"
+    exec {issued_key_lock_fd}>&-
+}
+
+issued_key_store() {
+    local license_id="$1" key="$2" expires_at="$3" expires_epoch now lock temporary
+    [[ -n "$license_id" && -n "$key" ]] || return 2
+    [[ "$license_id" != *$'\t'* && "$key" != *$'\t'* && "$key" != *$'\n'* ]] || return 2
+    expires_epoch="$(date -d "$expires_at" +%s 2>/dev/null)" || return 2
+    now="$(date -u +%s)"
+    ((expires_epoch > now)) || return 2
+    lock="$ISSUED_KEY_FILE.lock"
+    exec {issued_key_lock_fd}>"$lock" || return 1
+    flock -w 10 "$issued_key_lock_fd" || return 1
+    temporary="$(mktemp "$(dirname "$ISSUED_KEY_FILE")/.issued-keys.XXXXXX")" || return 1
+    awk -F '\t' -v wanted="$license_id" -v now="$now" \
+        'NF >= 3 && $1 != wanted && $3 ~ /^[0-9]+$/ && $3 > now {print $0}' \
+        "$ISSUED_KEY_FILE" 2>/dev/null > "$temporary" || true
+    printf '%s\t%s\t%s\n' "$license_id" "$key" "$expires_epoch" >> "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$ISSUED_KEY_FILE"
+    flock -u "$issued_key_lock_fd"
+    exec {issued_key_lock_fd}>&-
+}
+
 issued_key_get() { mapping_get "$ISSUED_KEY_FILE" "$1"; }
 issued_key_remove() { mapping_remove "$ISSUED_KEY_FILE" "$1"; }
