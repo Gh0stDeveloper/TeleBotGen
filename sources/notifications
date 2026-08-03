@@ -26,6 +26,7 @@ process_activation_events() {
     now="$(date -u +%s)"
     ((now >= telebotgen_next_event_poll)) || return 0
     telebotgen_next_event_poll=$((now + TELEBOTGEN_EVENT_POLL_SECONDS))
+    issued_key_cleanup "$now" || true
 
     data="$(license_api_pending_activation_events 2>/dev/null || true)"
     [[ -n "$data" ]] || return 0
