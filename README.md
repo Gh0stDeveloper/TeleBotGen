@@ -17,7 +17,7 @@ Una key es un código transferible de un solo uso:
 5. el vencimiento original deja de afectar a la instalación activada;
 6. la instalación continúa operativa y puede actualizarse mientras no sea revocada administrativamente.
 
-La key no se conserva en texto plano en el servidor de autorizaciones. TeleBotGen mantiene una copia local protegida únicamente hasta entregar el aviso de activación; después la elimina.
+La key no se conserva en texto plano en el servidor de autorizaciones. TeleBotGen mantiene una copia local protegida únicamente para entregar el aviso de activación: la elimina después de confirmar el aviso o automáticamente cuando vence sin utilizarse.
 
 ## Resellers
 
@@ -122,7 +122,7 @@ TeleBotGen consulta eventos pendientes y envía el aviso al destino registrado:
 - chat privado del generador para keys creadas por privado;
 - grupo permitido para keys creadas en ese grupo.
 
-Un evento solo se confirma después de que Telegram acepte el mensaje. Tras confirmarlo, la key completa se elimina del almacenamiento local del bot.
+Un evento solo se confirma después de que Telegram acepte el mensaje. Tras confirmarlo, la key completa se elimina del almacenamiento local del bot. Las copias de keys que vencen sin activarse también se purgan automáticamente.
 
 ## Archivos persistentes
 
@@ -183,6 +183,7 @@ GitHub Actions comprueba:
 - keys transferibles sin bloqueo por propietario;
 - enlaces temporales;
 - notificaciones de activación y eliminación posterior de keys;
+- purga automática de keys vencidas sin utilizar;
 - ausencia de información interna en mensajes públicos;
 - despliegue transaccional y separación de privilegios;
 - uso de `main` como referencia predeterminada.
