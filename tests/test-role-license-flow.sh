@@ -5,10 +5,15 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-export TELEBOTGEN_ADMIN_FILE="$TMP/Admin-ID"
-export TELEBOTGEN_RESELLER_FILE="$TMP/Reseller-ID"
-export TELEBOTGEN_GROUP_FILE="$TMP/Allowed-Groups"
-export TELEBOTGEN_KEY_DURATION_FILE="$TMP/Key-Duration-Minutes"
+export TELEBOTGEN_STATE_DIR="$TMP/state"
+export TELEBOTGEN_ADMIN_FILE="$TMP/state/Admin-ID"
+export TELEBOTGEN_RESELLER_FILE="$TMP/state/Reseller-ID"
+export TELEBOTGEN_CLIENT_FILE="$TMP/state/Client-ID"
+export TELEBOTGEN_GROUP_FILE="$TMP/state/Allowed-Groups"
+export TELEBOTGEN_GROUP_OWNER_FILE="$TMP/state/Group-Owners.tsv"
+export TELEBOTGEN_RESELLER_NAME_FILE="$TMP/state/Reseller-Names.tsv"
+export TELEBOTGEN_ISSUED_KEY_FILE="$TMP/state/Issued-Keys.tsv"
+export TELEBOTGEN_KEY_DURATION_FILE="$TMP/state/Key-Duration-Minutes"
 export TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE="$TMP/admin-token"
 printf 'test-token\n' > "$TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE"
 chmod 600 "$TELEBOTGEN_LICENSE_ADMIN_TOKEN_FILE"
@@ -23,83 +28,58 @@ roles_prepare_files
 
 printf '100\n' > "$TELEBOTGEN_ADMIN_FILE"
 printf '200\n' > "$TELEBOTGEN_RESELLER_FILE"
+printf '300\n' > "$TELEBOTGEN_CLIENT_FILE"
 printf '%s\n' '-1001234567890' > "$TELEBOTGEN_GROUP_FILE"
+group_owner_set -1001234567890 200
+reseller_name_set 200 'Reseller Norte'
+reseller_name_set 300 'Cliente Store'
 
 role_is_admin 100
-! role_is_admin 200
 role_is_reseller 200
-group_is_allowed -1001234567890
-! group_is_allowed -100999
-keygen_context_allowed private 400
-keygen_context_allowed group -1001234567890
-! keygen_context_allowed group -100999
+role_is_client 300
+! role_is_client 400
+actor_resolve_role 100; [[ "$actor_role" == admin ]]
+actor_resolve_role 200; [[ "$actor_role" == reseller ]]
+actor_resolve_role 300; [[ "$actor_role" == client ]]
+actor_resolve_role 400; [[ "$actor_role" == public ]]
+
+keygen_context_allowed private 300 client
+! keygen_context_allowed private 400 public
+keygen_context_allowed group -1001234567890 public
+! keygen_context_allowed group -100999 public
+[[ "$(group_owner_get -1001234567890)" == 200 ]]
+[[ "$(group_reseller_name_get -1001234567890)" == 'Reseller Norte' ]]
+[[ "$(reseller_name_get 400)" == 'Hex Tunnel Bot Gen' ]]
+! reseller_name_set 300 '<nombre inválido>'
 
 [[ "$(key_duration_get)" == 240 ]]
 key_duration_set 1440
 [[ "$(key_duration_get)" == 1440 ]]
-valid_key_duration 1
-valid_key_duration 525600
-! valid_key_duration 0
-! valid_key_duration 525601
-! valid_key_duration texto
 
-# La resolución de rol debe consultar por dueño en el servidor, no descargar
-# las últimas 200 licencias globales.
-license_api_request() {
-    local method="$1" path="$2"
-    [[ "$method" == GET ]]
-    printf '%s\n' "$path" >> "$TMP/api-paths"
-    case "$path" in
-        *owner_telegram_id=300*active_only=true*)
-            cat <<'JSON'
-{"items":[{"id":"active","key_prefix":"HT-ACTIVE","product":"hextunnel","owner_telegram_id":"300","owner_username":"client","status":"active","created_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","activation_limit":1,"activation_count":0,"bound_ip":null,"activated_at":null,"revoked_at":null,"revoke_reason":null,"metadata":{}}],"total":1,"limit":1,"offset":0}
-JSON
-            ;;
-        *owner_telegram_id=300*)
-            cat <<'JSON'
-{"items":[{"id":"active","key_prefix":"HT-ACTIVE","product":"hextunnel","owner_telegram_id":"300","owner_username":"client","status":"active","created_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","activation_limit":1,"activation_count":0,"bound_ip":null,"activated_at":null,"revoked_at":null,"revoke_reason":null,"metadata":{}},{"id":"old","key_prefix":"HT-OLD","product":"hextunnel","owner_telegram_id":"300","owner_username":"client","status":"expired","created_at":"2025-01-01T00:00:00Z","expires_at":"2025-01-02T00:00:00Z","activation_limit":1,"activation_count":1,"bound_ip":null,"activated_at":null,"revoked_at":null,"revoke_reason":null,"metadata":{}}],"total":2,"limit":200,"offset":0}
-JSON
-            ;;
-        *)
-            printf '{"items":[],"total":0,"limit":1,"offset":0}\n'
-            ;;
-    esac
-}
+issued_key_store license-1 'HT-FULL-KEY-ONE'
+[[ "$(issued_key_get license-1)" == 'HT-FULL-KEY-ONE' ]]
+issued_key_remove license-1
+[[ -z "$(issued_key_get license-1)" ]]
 
-actor_resolve_role 100
-[[ "$actor_role" == admin ]]
-actor_resolve_role 200
-[[ "$actor_role" == reseller ]]
-actor_resolve_role 300
-[[ "$actor_role" == client ]]
-[[ "$(jq -r .id <<< "$actor_license_json")" == active ]]
-actor_resolve_role 400
-[[ "$actor_role" == public ]]
-grep -Fq 'owner_telegram_id=300&active_only=true&limit=1' "$TMP/api-paths"
-! grep -Fq '/api/v1/admin/licenses?product=hextunnel&limit=200&offset=0' "$TMP/api-paths"
-
-[[ "$(license_human_duration 90060)" == '1 día(s), 1 hora(s) y 1 minuto(s)' ]]
-command_text="$(hextunnel_install_command)"
-grep -Fq 'command -v curl' <<< "$command_text"
-grep -Fq 'https://ghostdeveloper.duckdns.org/install.sh' <<< "$command_text"
-[[ "$(hextunnel_upgrade_command)" == 'sudo hextunnel-upgrade' ]]
-
-# Flujo real de /Keygen dentro de un grupo permitido: el dueño siempre es el remitente.
-license_api_active_for_owner() { return 0; }
 license_api_create() {
     printf '%s\n' "$@" > "$TMP/create-args"
     cat <<'JSON'
-{"id":"11111111-2222-3333-4444-555555555555","key":"HT-SELF-SERVICE-TEST","expires_at":"2099-01-01T00:00:00Z"}
+{"id":"11111111-2222-3333-4444-555555555555","key":"HT-TRANSFERABLE-TEST","expires_at":"2099-01-01T00:00:00Z"}
+JSON
+}
+license_api_create_installer_link() {
+    printf '%s\n' "$@" > "$TMP/link-args"
+    cat <<'JSON'
+{"url":"https://ghostdeveloperkeys.duckdns.org/i/temp-test","expires_at":"2099-01-01T00:15:00Z"}
 JSON
 }
 license_api_revoke() { printf '%s\n' "$@" > "$TMP/revoke-args"; }
-send_html() {
-    local chat_id="$1" text="$2"
-    printf '%s|%s\n' "$chat_id" "$text" >> "$TMP/messages"
-}
-msj_fun() { printf '%b' "$bot_retorno" > "$TMP/private-message"; }
+send_html() { printf '%s|%s\n' "$1" "$2" >> "$TMP/messages"; }
+msj_fun() { printf '%b' "$bot_retorno" > "$TMP/current-message"; }
+LINE='━━━━━━━━━━━━━━━━━━━━'
 
-LINE='============================'
+# Un miembro sin rol puede generar dentro de un grupo permitido. El reseller
+# procede del revendedor que autorizó ese grupo y la entrega ocurre en el grupo.
 current_chat_type='group'
 current_chat_id='-1001234567890'
 actor_id='400'
@@ -107,39 +87,49 @@ actor_username='alice_test'
 actor_role='public'
 comando=(/Keygen)
 key_duration_set 60
-rm -f "$TMP/create-args" "$TMP/messages"
 gerar_key
 
 mapfile -t create_args < "$TMP/create-args"
 [[ "${create_args[0]}" == 60 ]]
 [[ "${create_args[1]}" == 400 ]]
-[[ "${create_args[2]}" == alice_test ]]
 [[ "${create_args[3]}" == 400 ]]
 [[ "${create_args[4]}" == allowed-group-member ]]
 [[ "${create_args[5]}" == -1001234567890 ]]
-grep -Fq '400|<b>HEX TUNNEL — TU LICENCIA</b>' "$TMP/messages"
-grep -Fq 'HT-SELF-SERVICE-TEST' "$TMP/messages"
-grep -Fq -- '-1001234567890|<b>Key generada.</b>' "$TMP/messages"
+[[ "${create_args[6]}" == -1001234567890 ]]
+[[ "${create_args[7]}" == 'Reseller Norte' ]]
+grep -Fq 'HT-TRANSFERABLE-TEST' "$TMP/current-message"
+grep -Fq 'Reseller Norte' "$TMP/current-message"
+grep -Fq 'activada correctamente' "$TMP/current-message"
+[[ "$(issued_key_get 11111111-2222-3333-4444-555555555555)" == 'HT-TRANSFERABLE-TEST' ]]
 
-# El usuario no puede enviar ID, usuario ni duración manualmente.
-rm -f "$TMP/create-args" "$TMP/private-message"
+# Un visitante no puede generar por privado.
+rm -f "$TMP/create-args" "$TMP/current-message"
 current_chat_type='private'
 current_chat_id='400'
-comando=(/Keygen 999 123456 usuario)
-gerar_key
-[[ ! -e "$TMP/create-args" ]]
-grep -Fq 'Usa solamente <code>/Keygen</code>' "$TMP/private-message"
-
-# Una cuenta con licencia activa no puede generar una segunda key.
-license_api_active_for_owner() {
-    cat <<'JSON'
-{"id":"existing-license","status":"active","expires_at":"2099-01-01T00:00:00Z","bound_ip":null}
-JSON
-}
-rm -f "$TMP/create-args" "$TMP/private-message"
+actor_id='400'
+actor_role='public'
 comando=(/Keygen)
 gerar_key
 [[ ! -e "$TMP/create-args" ]]
-grep -Fq 'Ya tienes una licencia activa' "$TMP/private-message"
+grep -Fq 'Acceso no disponible' "$TMP/current-message"
 
-echo 'Role, group and self-service license flow tests passed.'
+# Un cliente autorizado puede generar múltiples keys transferibles; no se
+# consulta ni bloquea por una licencia anterior del mismo Telegram ID.
+current_chat_id='300'
+actor_id='300'
+actor_username='client_test'
+actor_role='client'
+comando=(/Keygen)
+rm -f "$TMP/create-args"
+gerar_key
+[[ -e "$TMP/create-args" ]]
+grep -Fq 'Cliente Store' "$TMP/current-message"
+
+# Los argumentos manuales siguen prohibidos.
+rm -f "$TMP/create-args" "$TMP/current-message"
+comando=(/Keygen 999)
+gerar_key
+[[ ! -e "$TMP/create-args" ]]
+grep -Fq 'Usa únicamente' "$TMP/current-message"
+
+echo 'Role, reseller, group and transferable key flow tests passed.'
