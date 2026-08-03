@@ -3,7 +3,7 @@
 update() {
     local request_file="${TELEBOTGEN_UPDATE_REQUEST_FILE:-/etc/ADM-db/update.request}"
     if ! role_is_admin "$actor_id"; then
-        bot_retorno='<b>Solo el administrador puede actualizar TeleBotGen.</b>'
+        bot_retorno='<b>Solo el administrador puede solicitar una actualización.</b>'
         msj_fun
         return
     fi
@@ -17,11 +17,11 @@ update() {
     if printf 'requested_by=%s\nrequested_at=%s\n' \
         "$actor_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$request_file"; then
         chmod 600 "$request_file" 2>/dev/null || true
-        bot_retorno='<b>Actualización solicitada.</b>
+        bot_retorno='<b>✅ Actualización solicitada.</b>
 
-El servicio seguro de actualización la procesará y enviará el resultado por privado.'
+El resultado se enviará por privado cuando finalice.'
     else
-        bot_retorno='<b>No se pudo registrar la solicitud de actualización.</b>'
+        bot_retorno='<b>❌ No se pudo registrar la solicitud.</b>'
     fi
     msj_fun
 }
