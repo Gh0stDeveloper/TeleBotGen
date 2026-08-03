@@ -2,7 +2,7 @@ name: TeleBotGen CI
 
 on:
   push:
-    branches: ['feat/**', 'fix/**', 'main']
+    branches: ['feat/**', 'fix/**', 'agent/**', 'main']
   pull_request:
 
 concurrency:
@@ -129,6 +129,12 @@ jobs:
           grep -Fq 'install -o root -g root -m 600 "$staging/deploy.env" "$DEPLOY_ENV"' deploy.sh
           grep -Fq 'rm -f "$STATE_DIR/repository.env"' deploy.sh
           grep -Fq 'ReadOnlyPaths=/bin/ShellBot.sh /etc/ghostdeveloper-license $CONFIG_DIR' deploy.sh
+
+          grep -Fq 'REF="${TELEBOTGEN_REF:-main}"' confbot.sh
+          grep -Fq 'REF="${TELEBOTGEN_REF:-main}"' deploy.sh
+          grep -Fq 'https://raw.githubusercontent.com/Gh0stDeveloper/TeleBotGen/main/confbot.sh' README.md
+          ! grep -REn 'feat/hextunnel-license-integration|agent/public-bootstrap-web' \
+              README.md confbot.sh deploy.sh update.sh docs
 
           grep -Fq 'update.request' sources/update
           ! grep -Fq 'systemd-run' sources/update

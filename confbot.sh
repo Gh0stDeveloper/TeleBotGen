@@ -4,7 +4,7 @@ umask 077
 
 STATE_DIR="${TELEBOTGEN_STATE_DIR:-/etc/ADM-db}"
 REPOSITORY="${TELEBOTGEN_REPOSITORY:-Gh0stDeveloper/TeleBotGen}"
-REF="${TELEBOTGEN_REF:-feat/hextunnel-license-integration}"
+REF="${TELEBOTGEN_REF:-main}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 DURATION_FILE="$STATE_DIR/Key-Duration-Minutes"
 BAR='============================================================'
