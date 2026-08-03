@@ -1,25 +1,37 @@
 #!/usr/bin/env bash
 
 link_src() {
-    local install_command
-    install_command="$(html_escape "$(hextunnel_install_command)")"
-    bot_retorno="<b>INSTALADOR OFICIAL HEX TUNNEL</b>\n$LINE\n"
-    bot_retorno+="<code>${install_command}</code>\n"
-    bot_retorno+="$LINE\n"
-    bot_retorno+="El comando instala curl y certificados cuando no están disponibles, solicita la key, verifica la firma RSA y descarga el paquete privado.\n"
-    bot_retorno+="<b>Requisito:</b> VPS dedicada Debian 12 o Ubuntu 22.04/24.04, arquitectura amd64/x86_64.\n"
-    bot_retorno+="No lo instales en la VPS del bot, API, web o servicios importantes.\n"
-    bot_retorno+="Información: <a href=\"https://ghostdeveloper.duckdns.org/\">ghostdeveloper.duckdns.org</a>\n"
-    bot_retorno+="Desarrolladores: @Gh0stDeveloper · @Jotchua_DevzZ\n$LINE"
+    local response installer_url expires_at install_command
+    if ! keygen_context_allowed "$current_chat_type" "$current_chat_id" "$actor_role"; then
+        bot_retorno="🔒 <b>Acceso no disponible</b>\n\nEl instalador temporal requiere una cuenta o grupo autorizado."
+        msj_fun
+        return 0
+    fi
+    response="$(license_api_create_installer_link "$actor_id" "$current_chat_id" 2>/dev/null || true)"
+    installer_url="$(jq -r '.url // empty' <<< "$response" 2>/dev/null || true)"
+    expires_at="$(jq -r '.expires_at // empty' <<< "$response" 2>/dev/null || true)"
+    [[ -n "$installer_url" ]] || {
+        bot_retorno="❌ <b>No se pudo crear el enlace temporal</b>\n\nInténtalo nuevamente."
+        msj_fun
+        return 1
+    }
+    install_command="$(html_escape "$(hextunnel_install_command "$installer_url")")"
+    bot_retorno="🔗 <b>INSTALADOR TEMPORAL</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+    bot_retorno+="<a href=\"$(html_escape "$installer_url")\">Abrir enlace de instalación</a>\n"
+    bot_retorno+="Caduca: <code>$(html_escape "$expires_at")</code>\n\n"
+    bot_retorno+="💻 <b>Comando</b>\n<code>${install_command}</code>\n\n"
+    bot_retorno+="El instalador solicitará una key válida."
     msj_fun
 }
 
 upgrade_src() {
-    bot_retorno="<b>ACTUALIZACIÓN PRIVADA</b>\n$LINE\n"
-    bot_retorno+="Después de instalar Hex Tunnel ejecuta:\n"
-    bot_retorno+="<code>sudo hextunnel-upgrade</code>\n"
-    bot_retorno+="Estado de licencia:\n<code>sudo hextunnel-license status</code>\n"
-    bot_retorno+="$LINE\n"
-    bot_retorno+="La actualización vuelve a validar la licencia, descarga la release activa y conserva los servicios de red instalados.\n$LINE"
+    if [[ "$actor_role" == public && "$current_chat_type" == private ]]; then
+        bot_retorno="🔒 Esta opción requiere acceso autorizado."
+        msj_fun
+        return 0
+    fi
+    bot_retorno="⬆️ <b>ACTUALIZAR HEX TUNNEL</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+    bot_retorno+="Ejecuta en la máquina instalada:\n<code>sudo hextunnel-upgrade</code>\n\n"
+    bot_retorno+="La actualización utiliza la activación permanente guardada; no necesita reutilizar la key original."
     msj_fun
 }
